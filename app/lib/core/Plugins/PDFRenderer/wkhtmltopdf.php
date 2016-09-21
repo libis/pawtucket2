@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2014 Whirl-i-Gig
+ * Copyright 2014-2016 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -177,7 +177,10 @@ class WLPlugPDFRendererwkhtmltopdf Extends BasePDFRendererPlugIn Implements IWLP
 	 */
 	public function checkStatus() {
 		$va_status = parent::checkStatus();
-		$va_status['available'] = caWkhtmltopdfInstalled();
+		
+		$o_config = Configuration::load();
+		
+		$va_status['available'] = (((strtolower($o_config->get("use_pdf_renderer")) == 'phantomjs') && caPhantomJSInstalled()) || (strtolower($o_config->get("use_pdf_renderer")) == 'dompdf')) ? false : caWkhtmltopdfInstalled();
 		
 		return $va_status;
 	}

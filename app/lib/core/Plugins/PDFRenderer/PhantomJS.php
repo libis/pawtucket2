@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2014 Whirl-i-Gig
+ * Copyright 2014-2016 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -100,11 +100,11 @@ class WLPlugPDFRendererPhantomJS Extends BasePDFRendererPlugIn Implements IWLPlu
 	 * @seealso WLPlugPDFRendererPhantomJS::renderFile()
 	 */
 	public function render($ps_content, $pa_options=null) {
-		
 		file_put_contents($vs_content_path = caMakeGetFilePath("phantomjs", "html"), $ps_content); 
 		$vs_output_path = caMakeGetFilePath("phantomjs", "pdf");
-		
-		exec($x=$this->ops_phantom_path." ".__CA_LIB_DIR__."/core/Print/phantomjs/rasterise.js ".caEscapeShellArg($vs_content_path)." ".caEscapeShellArg($vs_output_path)." {$this->ops_page_size} {$this->ops_page_orientation}  {$this->ops_margin_right} {$this->ops_margin_bottom} {$this->ops_margin_left}", $va_output, $vn_return);	
+		$x=$this->ops_phantom_path." --debug true ".__CA_LIB_DIR__."/core/Print/phantomjs/rasterise.js ".caEscapeShellArg("file://{$vs_content_path}")." ".caEscapeShellArg($vs_output_path)." {$this->ops_page_size} {$this->ops_page_orientation} {$this->ops_margin_top} {$this->ops_margin_right} {$this->ops_margin_bottom} {$this->ops_margin_left} 2>&1";
+	
+		exec($x, $va_output, $vn_return);	
 
 		$vs_pdf_content = file_get_contents($vs_output_path);
 		if (caGetOption('stream', $pa_options, false)) {
@@ -167,13 +167,18 @@ class WLPlugPDFRendererPhantomJS Extends BasePDFRendererPlugIn Implements IWLPlu
 	 */
 	public function checkStatus() {
 		$va_status = parent::checkStatus();
-		if (caPhantomJSInstalled() && !($vb_wkhtmltopdf = caWkhtmltopdfInstalled())) {
+		
+		$o_config = Configuration::load();
+		if (((strtolower($o_config->get("use_pdf_renderer")) == 'phantomjs') && caPhantomJSInstalled()) || (caPhantomJSInstalled() && !($vb_wkhtmltopdf = caWkhtmltopdfInstalled()))) {
 			$va_status['available'] = true;	// prefer use of wkhtmltopdf when available
 		} else {
 			$va_status['available'] = false;
 			if ($vb_wkhtmltopdf) {
 				$va_status['unused'] = true;
-				$va_status['warnings'][] = _t("Didn't load because wkhtmltopdf is available and preferred");
+				
+				if (!$o_config->get("use_pdf_renderer")) {
+					$va_status['warnings'][] = _t("Didn't load because wkhtmltopdf is available and preferred");
+				}
 			}
 		}
 		

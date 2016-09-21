@@ -127,16 +127,21 @@ class WLPlugPDFRendererdomPDF Extends BasePDFRendererPlugIn Implements IWLPlugPD
 	public function checkStatus() {
 		$va_status = parent::checkStatus();
 		
-		if (!($vb_phantom_js = caPhantomJSInstalled()) && !($vb_wkhtmltopdf = caWkhtmltopdfInstalled())) {
+		$o_config = Configuration::load();
+		
+		if ((strtolower($o_config->get("use_pdf_renderer")) == 'dompdf') || (!($vb_phantom_js = caPhantomJSInstalled()) && !($vb_wkhtmltopdf = caWkhtmltopdfInstalled()))) {
 			$va_status['available'] = true;
 		} else {
 			$va_status['available'] = false;
-			if ($vb_wkhtmltopdf) {
-				$va_status['unused'] = true;
-				$va_status['warnings'][] = _t("Didn't load because wkhtmltopdf is available and preferred");
-			} elseif($vb_phantom_js) {
-				$va_status['unused'] = true;
-				$va_status['warnings'][] = _t("Didn't load because PhantomJS is available and preferred");
+			
+			if (!$o_config->get("use_pdf_renderer")) {
+				if ($vb_wkhtmltopdf) {
+					$va_status['unused'] = true;
+					$va_status['warnings'][] = _t("Didn't load because wkhtmltopdf is available and preferred");
+				} elseif($vb_phantom_js) {
+					$va_status['unused'] = true;
+					$va_status['warnings'][] = _t("Didn't load because PhantomJS is available and preferred");
+				}
 			}
 		}
 		

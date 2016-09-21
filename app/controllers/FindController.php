@@ -29,9 +29,6 @@
  	require_once(__CA_APP_DIR__."/helpers/searchHelpers.php");
  	require_once(__CA_APP_DIR__."/helpers/browseHelpers.php");
  	require_once(__CA_APP_DIR__."/helpers/exportHelpers.php");
- 	require_once(__CA_APP_DIR__."/helpers/printHelpers.php");
- 	require_once(__CA_APP_DIR__."/helpers/printHelpers.php");
- 	require_once(__CA_APP_DIR__."/helpers/exportHelpers.php");
 	require_once(__CA_LIB_DIR__.'/pawtucket/BasePawtucketController.php');
 	
  	class FindController extends BasePawtucketController {
