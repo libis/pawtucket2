@@ -41,6 +41,11 @@
 		if(caDisplayClassroom($this->request)){
 			$va_user_links[] = "<li>".caNavLink($this->request, $vs_classroom_sectionHeading, '', '', 'Classroom', 'Index', array())."</li>";
 		}
+		
+		if ($this->request->getUser()->canDoAction('can_edit_theme_global_values') && (caGetGlobalValuesCount() > 0)) {
+			$va_user_links[] = "<li>".caNavLink($this->request, _t('Edit global values'), '', '', 'Admin', 'editGlobalValues', array())."</li>";
+		}
+		
 		$va_user_links[] = "<li>".caNavLink($this->request, _t('User Profile'), '', '', 'LoginReg', 'profileForm', array())."</li>";
 		$va_user_links[] = "<li>".caNavLink($this->request, _t('Logout'), '', '', 'LoginReg', 'Logout', array())."</li>";
 	} else {	
