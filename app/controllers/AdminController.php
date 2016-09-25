@@ -31,9 +31,8 @@
  	require_once(__CA_APP_DIR__.'/helpers/accessHelpers.php');
 	require_once(__CA_MODELS_DIR__."/ca_sets.php");
 	require_once(__CA_MODELS_DIR__."/ca_objects.php");
-	require_once(__CA_LIB_DIR__.'/pawtucket/BasePawtucketController.php');
  
- 	class AdminController extends BasePawtucketController {
+ 	class AdminController extends ActionController {
  		# -------------------------------------------------------
  		public function __construct(&$po_request, &$po_response, $pa_view_paths=null) {
  			parent::__construct($po_request, $po_response, $pa_view_paths);
