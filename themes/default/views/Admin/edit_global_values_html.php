@@ -36,8 +36,7 @@
 		<h1><?php print _t('Global value editor'); ?></h1>
 	</div>
 	<div>
-		<?php print _t('Global
-		'); ?>
+		<?php print _t('Global values are editable text values that may be displayed in any view template in your Pawtucket theme. They are especially useful for managing semi-static text embedded in a web site, such as upcoming holiday hours or planned maintenance. You may edit globals using the form below. Configure additional global values by adding them to your theme app.conf configuration file.'); ?>
 	</div>
 	<div style="clear:both; height:1px;"><!-- empty --></div>
 <?php	
