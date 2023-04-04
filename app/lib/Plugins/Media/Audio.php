@@ -457,7 +457,8 @@ class WLPlugMediaAudio Extends BaseMediaPlugin Implements IWLPlugMedia {
 		switch($operation) {
 			# -----------------------
 			case "SET":
-				while(list($k, $v) = each($parameters)) {
+				foreach($parameters as $k => $v){
+
 					$this->set($k, $v);
 				}
 				break;
@@ -718,7 +719,7 @@ class WLPlugMediaAudio Extends BaseMediaPlugin Implements IWLPlugMedia {
 	# ------------------------------------------------
 	public function extension2mimetype($extension) {
 		reset($this->info["EXPORT"]);
-		while(list($k, $v) = each($this->info["EXPORT"])) {
+		foreach($this->info["EXPORT"] as $k => $v){
 			if ($v === $extension) {
 				return $k;
 			}
@@ -756,8 +757,8 @@ class WLPlugMediaAudio Extends BaseMediaPlugin Implements IWLPlugMedia {
 			if (!isset($options[$k])) { $options[$k] = null; }
 		}
 		
-		$width 	=	caParseFormElementDimension($options["viewer_width"] ?? ($properties["width"] ?? null), ['returnAs' => 'pixels', 'assumePixels' => true]);
-		$height =	caParseFormElementDimension($options["viewer_height"] ?? ($properties["height"] ?? null), ['returnAs' => 'pixels', 'assumePixels' => true]);
+		$width 	=	caParseFormElementDimension($options["viewer_width"] ?? ($properties["width"] ?? null), ['returnAs' => 'pixels', 'assumePixels' => true, 'includeSuffix' => true]);
+		$height =	caParseFormElementDimension($options["viewer_height"] ?? ($properties["height"] ?? null), ['returnAs' => 'pixels', 'assumePixels' => true, 'includeSuffix' => true]);
 		
 		$id 	= 	$options["id"] ?? "audio_player";
 		$name 	= 	$options["name"] ?? $id;
@@ -779,7 +780,7 @@ class WLPlugMediaAudio Extends BaseMediaPlugin Implements IWLPlugMedia {
 
 				if(caGetOption('user_interface', $options, false, ['forceLowercase' => true]) !== 'mediaelement') {
 ?>
-					<div class="<?= $class; ?> audio-responsive" style="width: <?= $width; ?>px; height: <?= $height; ?>px;">
+					<div class="<?= $class; ?> audio-responsive" style="width: <?= $width; ?>; height: <?= $height; ?>;">
 						<video id="<?= $id; ?>" playsinline controls data-poster="<?= $poster_frame_url; ?>" width="<?= $width; ?>" height="<?= $height; ?>" >
 						  <source src="<?= $url; ?>" type="<?= $properties["mimetype"]; ?>" />
 <?php
