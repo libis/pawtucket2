@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2008-2023 Whirl-i-Gig
+ * Copyright 2008-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,16 +29,9 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
 require_once(__CA_LIB_DIR__.'/ITakesSettings.php');
 require_once(__CA_LIB_DIR__.'/LabelableBaseModelWithAttributes.php');
-require_once(__CA_MODELS_DIR__.'/ca_metadata_type_restrictions.php');
 require_once(__CA_LIB_DIR__."/SyncableBaseModel.php");
-
 
 BaseModel::$s_ca_models_definitions['ca_metadata_elements'] = array(
 	'NAME_SINGULAR' 	=> _t('metadata element'),
@@ -240,6 +233,11 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 	 * @var array
 	 */
 	protected $opa_element_settings = array();
+	
+	/**
+	 * ApplicationVars instance
+	 */
+	protected $opo_app_vars;
 
 	# ------------------------------------------------------
 	# --- Constructor
@@ -422,6 +420,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 				$root = $element['NODE'];
 			} else {
 				$element_set[$element['NODE']['parent_id']][$element['NODE']['rank']][$element['NODE']['element_id']] = $element['NODE'];
+				ksort($element_set[$element['NODE']['parent_id']][$element['NODE']['rank']]);
 			}
 		}
 
@@ -471,6 +470,24 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 	        }
 	        return false;
 	    }));
+	}
+	# --------------------------------------------------------------------------------
+	/**
+	 * Get all field values of the current element. This overrides the default implementation
+	 * in BaseModel to ensure that all element settings - including type-specific settings - are
+	 * present in the returned array.
+	 *
+	 * @see BaseModel::getChangedFieldValuesArray()
+	 * @return array associative array: field name => field value
+	 */
+	public function getFieldValuesArray($include_unset_fields=false) {
+		$field_values = parent::getFieldValuesArray($include_unset_fields);
+		
+		$settings = $this->getSettings();
+		if(is_array($settings)) {
+			$field_values['settings'] = $settings;
+		}
+		return $field_values;
 	}
 	# ------------------------------------------------------
 	# Settings
@@ -610,7 +627,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 					}
 					$attributes['onchange'] = 'jQuery(this).prop("checked") ? jQuery("'.join(",", $ids).'").slideUp(250).find("input, textarea").val("") : jQuery("'.join(",", $ids).'").slideDown(250);';
 					
-					if ($attributes['checked']) {
+					if ($attributes['checked'] ?? false) {
 						$vs_return .= "<script type='text/javascript'>
 	jQuery(document).ready(function() {
 		jQuery('".join(",", $ids)."').hide();
@@ -627,7 +644,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 					}
 					$attributes['onchange'] = 'jQuery(this).prop("checked") ? jQuery("'.join(",", $ids).'").slideDown(250).find("input, textarea").val("") : jQuery("'.join(",", $ids).'").slideUp(250);';
 					
-					if (!$attributes['checked']) {
+					if (!($attributes['checked'] ?? false)) {
 						$vs_return .= "<script type='text/javascript'>
 	jQuery(document).ready(function() {
 		jQuery('".join(",", $ids)."').hide();
@@ -647,7 +664,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 				$va_opts = array('id' => $vs_input_name, 'width' => $vn_width, 'height' => $vn_height);
 				
 				
- 				if($va_properties['showMediaElementBundles']) {
+ 				if($va_properties['showMediaElementBundles'] ?? false) {
  				    if (!is_array($va_restrictions = $this->getTypeRestrictions())) { $va_restrictions = []; }
  				    
                     $va_select_opts = ['-' => ''];
@@ -666,8 +683,16 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
                         }
                         $va_properties['options'] = $va_select_opts;
                     } 
-                } elseif($va_properties['showLocaleList']) {
-                	$locales = ca_locales::getLocaleList();
+                } elseif(($va_properties['showLocaleList'] ?? false)) {
+                	// showLocaleList = list all available locales
+                	$locales = ca_locales::getLocaleList(['available_for_cataloguing_only' => false]);
+                	$va_properties['options'] = [];
+                	foreach($locales as $locale_id => $l) {
+                		$va_properties['options'][$l['name']] = $l['language'].'_'.$l['country'];
+                	}
+                } elseif($va_properties['useLocaleList'] ?? false) {
+                	// useLocaleList = show cataloguing locales only
+                	$locales = ca_locales::getLocaleList(['available_for_cataloguing_only' => true]);
                 	$va_properties['options'] = [];
                 	foreach($locales as $locale_id => $l) {
                 		$va_properties['options'][$l['name']] = $l['language'].'_'.$l['country'];
@@ -688,7 +713,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 					$attributes['onchange'] = "caSetElementsSettingsForm({ {$vs_input_name} : jQuery(this).val() }); return false;";
 				}
 				
-				if($va_properties['useList']) {
+				if($va_properties['useList'] ?? false) {
                 	$t_list = new ca_lists($va_properties['useList']);
 					if(!isset($va_opts['value'])) { $va_opts['value'] = -1; }		// make sure default list item is never selected
 					$vs_return .= $t_list->getListAsHTMLFormElement($va_properties['useList'], $vs_input_name, $attributes, $va_opts);
@@ -913,7 +938,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 					$va_record['ui_counts'] = $va_counts_by_attribute[$t_element->get('element_code')];
 				}
 
-				$va_record['restrictions'] = $va_restrictions_by_attribute[$vs_code];
+				$va_record['restrictions'] = $va_restrictions_by_attribute[$vs_code] ?? null;
 			}
 			$va_return[$vn_element_id] = $va_record;
 		}
@@ -1267,6 +1292,8 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 		$vm_return = null;
 		if ($t_element = ca_metadata_elements::getInstance($pm_element_code_or_id)) {
 			$vm_return = (int)$t_element->get('datatype');
+		} else {
+			return null;
 		}
 
 		MemoryCache::save($pm_element_code_or_id, $vm_return, 'ElementDataTypes');
@@ -1358,8 +1385,9 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 		if(is_numeric($pm_element_code_or_id)) { $pm_element_code_or_id = (int) $pm_element_code_or_id; }
 
 		$datatype = self::getElementDatatype($pm_element_code_or_id);
+		$settings = self::getElementSettingsForId($pm_element_code_or_id);
 		if ($attr_value = \CA\Attributes\Attribute::getValueInstance($datatype, [], true)) {
-			return $attr_value->sortableValue($value);
+			return $attr_value->sortableValue($value, $settings);
 		}
 		return null;
 	}
@@ -1569,6 +1597,44 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 	}
 	# ------------------------------------------------------
 	/**
+	 * 
+	 *
+	 * @param string|int $table
+	 * @param string|int $element_code_or_id
+	 * @return bool
+	 */
+	static public function elementIsApplicableToType($table, array $types, $element_code_or_id) : bool {
+		$cache_key = caMakeCacheKeyFromOptions($types, $table.$element_code_or_id);
+		if(CompositeCache::contains($cache_key, 'ElementApplicability')) {
+			return CompositeCache::fetch($cache_key, 'ElementApplicability');
+		}
+		if(!$element_code_or_id) {  return false; }
+		if(!($t_element = self::getInstance($element_code_or_id))) { 
+			CompositeCache::save($cache_key, false, 'ElementApplicability');
+			return false; 
+		}
+		$table_num = Datamodel::getTableNum($table);
+	
+		$type_res_list = $t_element->getTypeRestrictions($table_num);
+		if(is_array($type_res_list)) {
+			foreach($type_res_list as $type_res) {
+				if($type_res['table_num'] != $table_num) { continue; }
+				
+				if(!$type_res['type_id']) { 
+					CompositeCache::save($cache_key, true, 'ElementApplicability');
+					return true; 
+				}
+				if(in_array($type_res['type_id'], $types)) { 
+					CompositeCache::save($cache_key, true, 'ElementApplicability');
+					return true; 
+				}
+			}
+		}
+		CompositeCache::save($cache_key, false, 'ElementApplicability');
+		return false;
+	}
+	# ------------------------------------------------------
+	/**
 	 * Get ca_metadata_elements instance for given code or ID
 	 * @param $pm_element_code_or_id
 	 * @return ca_metadata_elements|mixed|null
@@ -1627,6 +1693,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 			$this->errors = $t_restriction->errors();
 			return false;
 		}
+		CompositeCache::flush('ElementApplicability');
 		return true;
 	}
 	# ------------------------------------------------------
@@ -1654,6 +1721,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 			$this->errors = $o_db->errors();
 			return false;
 		}
+		CompositeCache::flush('ElementApplicability');
 		return true;
 	}
 	# ------------------------------------------------------
@@ -1678,6 +1746,7 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 			$this->errors = $o_db->errors();
 			return false;
 		}
+		CompositeCache::flush('ElementApplicability');
 		return true;
 	}
 	# ------------------------------------------------------
@@ -1702,21 +1771,25 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 			return CompositeCache::fetch($vs_key, 'ElementTypeRestrictions');
 		}
 		
+		$params = [(int)$vn_element_id];
+		
 		$o_db = $this->getDb();
 
 		$vs_table_type_sql = '';
 		if ($pn_table_num > 0) {
-			$vs_table_type_sql .= ' AND table_num = '.intval($pn_table_num);
+			$vs_table_type_sql .= ' AND table_num = ?';
+			$params[] = intval($pn_table_num);
 		}
 		if ($pn_type_id > 0) {
-			$vs_table_type_sql .= ' AND type_id = '.intval($pn_type_id);
+			$vs_table_type_sql .= ' AND (type_id IN (?) OR type_id IS NULL)';
+			$params[] = (is_array($types_ids)) ? $type_ids : [$type_id];
 		}
 		$qr_res = $o_db->query("
 			SELECT *
 			FROM ca_metadata_type_restrictions
 			WHERE
 				element_id = ? {$vs_table_type_sql}
-		", (int)$vn_element_id);
+		", $params);
 
 		if ($o_db->numErrors()) {
 			$this->errors = $o_db->errors();
@@ -1822,9 +1895,10 @@ class ca_metadata_elements extends LabelableBaseModelWithAttributes implements I
 			$vs_format = str_replace('^EXTRA', '', $vs_format);
 
 			$vs_format = str_replace('^ELEMENT', caHTMLSelect($ps_field, $va_opts, array('id' => $ps_field), array('value' => $this->get('list_id'))), $vs_format);
+			$vs_format = str_replace('^BUNDLECODE', '', $vs_format);
 
 			if (!isset($pa_options['no_tooltips']) || !$pa_options['no_tooltips']) {
-				TooltipManager::add('#list_id', "<h3>{$vs_field_label}</h3>".$this->getFieldInfo('list_id', 'DESCRIPTION'), $pa_options['tooltip_namespace']);
+				TooltipManager::add('#list_id', "<h3>{$vs_field_label}</h3>".$this->getFieldInfo('list_id', 'DESCRIPTION'), $pa_options['tooltip_namespace'] ?? null);
 			}
 			return $vs_format;
 		}

@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2004-2021 Whirl-i-Gig
+ * Copyright 2004-2023 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,11 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
- 
- /**
-  *
-  */
-
 require_once(__CA_LIB_DIR__."/Utils/Timer.php");
 include_once(__CA_LIB_DIR__."/Configuration.php");
 include_once(__CA_APP_DIR__."/helpers/mediaPluginHelpers.php");
@@ -1310,31 +1305,12 @@ class TilepicParser {
 				if (isset($va_exif['IFD0']['Orientation'])) {
 					$vn_orientation = $va_exif['IFD0']['Orientation'];
 					if($vn_orientation > 0) {
-						// Make copy without EXIF rotation and re-read. There's no other way
-						// to get rid of the orientation tag in derived files (argh).
-						$use_exif_tool_to_strip = (bool)$this->opo_config->get('dont_use_exiftool_to_strip_exif_orientation_tags');
+						// remove all metadata - especially orientation tag
+						$h->stripImage();
 						
-						// Fall back to using stripImage() if ExifTool is not available. This is quick and easy 
-						// but will strip *everything* including color profiles which will be a problem for many users.
-						if (!caExifToolInstalled() || $use_exif_tool_to_strip) {	
-							$h->stripImage();
-						} else {
-							// Stripping with EXIF tool means copying the entire file and then shelling out
-							// to remove the EXIF tag. We could avoid a copy by running EXIF tool on each tile we
-							// generate, but then we'd be shelling out hundreds or thousands of times per image. 
-							// Either way it sucks.
-							$tmp_path = caGetTempDirPath()."/".pathinfo($ps_filepath, PATHINFO_FILENAME)."_orient.".pathinfo($ps_filepath, PATHINFO_EXTENSION);
-							copy($ps_filepath, $tmp_path);
-							caExtractRemoveOrientationTagWithExifTool($tmp_path);
-							
-							try {
-								$h = new Gmagick($tmp_path);
-								$this->setResourceLimits_gmagick($h);
-								$h->setimageindex(0);	// force use of first image in multi-page TIFF
-							} catch (Exception $e){
-								$this->error = "Couldn't open image {$ps_filepath}_orient";
-								return false;
-							}
+						// restore color profile if present, otherwise image will probabl look awful
+						if($profile = $va_exif['IFD0']['ICC_Profile'] ?? null) {
+							$h->profileimage('icc', $profile);
 						}
 					}
 					switch($vn_orientation) {
@@ -1436,12 +1412,12 @@ class TilepicParser {
 				}
 				
 				if (!$slice->setimageformat($magick)) {
-					$this->error = "Tile conversion failed: $reason; $description";
+					$this->error = "Tile conversion failed";
 					return false;
 				}
 				
 				if (!$slice->setcompressionquality($pa_options["quality"])) {
-					$this->error = "Tile quality set failed: $reason; $description";
+					$this->error = "Tile quality set failed";
 					return false;
 				}
 				
@@ -1920,7 +1896,7 @@ class TilepicParser {
 				$cx = ($x*$tile_width);
 				$tile = $this->getTile($tile_number);
 				if ($tile) { 
-					$vs_tile_file = tempnam($vs_tilepic_tmpdir, "tpcl_");
+					$vs_tile_file = tempnam(caGetTempDirPath(), "tpcl_");
 					file_put_contents($vs_tile_file, $tile);
 					$va_tile_files[] = $vs_tile_file;
 				}
@@ -1929,7 +1905,7 @@ class TilepicParser {
 		}
 		
 		if ($vs_ext = $this->mimetype2ext[$output_mimetype]) { $vs_ext = '.'.$vs_ext; }
-		$vs_tmp_base_path = tempnam($vs_tilepic_tmpdir, 'tcpt_');
+		$vs_tmp_base_path = tempnam(caGetTempDirPath(), 'tcpt_');
 		$vs_tmp_path = $vs_tmp_base_path.$vs_ext;
 		if (!$this->_imageMagickImageFromTiles($vs_tmp_path, $va_tile_files, $tile_width, $tile_height)) {
 			$this->error = "Compositing of tiles failed";
@@ -1988,7 +1964,7 @@ class TilepicParser {
 			}
 		}
 		if (!$h->setImageFormat($magick)) {
-			$this->error = "Couldn't convert image to $output_mimetype ($magick)";
+			$this->error = "Couldn't convert image to {$magick}";
 			return false;
 		}
 		return $h;
@@ -2122,7 +2098,6 @@ class TilepicParser {
 			}
 		} else {
 			if ($pb_print_errors) { print "Couldn't open file $ps_filepath"; }
-			fclose($fh);
 			return false;
 		}
 	}

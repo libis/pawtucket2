@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2007-2022 Whirl-i-Gig
+ * Copyright 2007-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,15 +29,9 @@
  *
  * ----------------------------------------------------------------------
  */
-
- /**
-   *
-   */
-
 require_once(__CA_LIB_DIR__.'/Datamodel.php');
 require_once(__CA_LIB_DIR__.'/Configuration.php');
 require_once(__CA_LIB_DIR__.'/Parsers/ZipFile.php');
-require_once(__CA_LIB_DIR__.'/Logging/Eventlog.php');
 require_once(__CA_LIB_DIR__.'/Utils/Encoding.php');
 require_once(__CA_APP_DIR__.'/helpers/batchHelpers.php');
 require_once(__CA_LIB_DIR__.'/Parsers/ganon.php');
@@ -54,7 +48,6 @@ if (!function_exists('array_key_first')) {
         return NULL;
     }
 }
-
 # ----------------------------------------------------------------------
 # String localization functions (getText)
 # ----------------------------------------------------------------------
@@ -114,7 +107,7 @@ function _t($ps_key) {
 	if (sizeof($va_args = func_get_args()) > 1) {
 		$vn_num_args = sizeof($va_args) - 1;
 		for($vn_i=$vn_num_args; $vn_i >= 1; $vn_i--) {
-			$vs_str = str_replace("%{$vn_i}", $va_args[$vn_i], $vs_str);
+			$vs_str = str_replace("%{$vn_i}", is_array($va_args[$vn_i]) ? join('; ', $va_args[$vn_i]) : $va_args[$vn_i], $vs_str);
 		}
 	}
 	return $vs_str;
@@ -887,6 +880,33 @@ function caFileIsIncludable($ps_file) {
 	}
 	# ----------------------------------------
 	/**
+	 * Remove stray temporary files from application tmp diectory
+	 *
+	 * Currently deletes:
+	 *		wkhtmltopdf tmp files
+	 */
+	function caCleanTmpDirectory() {
+		$config = Configuration::load();
+		if (($threshold = (int)$config->get('tmp_directory_garbage_collection_threshold')) <= 0) {
+			$threshold = 1800;
+		}
+		
+		$files_to_delete = caGetDirectoryContentsAsList(__CA_APP_DIR__.'/tmp', true, false, false, true, ['notModifiedSince' => time() - $threshold]);
+	
+		$count = 0;
+		foreach($files_to_delete as $file_to_delete) {
+			if(is_writeable($file_to_delete)) {
+				if(preg_match("!^".__CA_APP_DIR__.'/tmp'."/wkhtmltopdf[\d]+!", $file_to_delete)) {
+					@unlink($file_to_delete);
+					$count++;
+				}
+			}
+		}
+		
+		return $count;
+	}
+	# ----------------------------------------
+	/**
 	 *
 	 */
 	function caMakeGetFilePath($ps_prefix=null, $ps_extension=null, $options=null) {
@@ -1070,9 +1090,9 @@ function caFileIsIncludable($ps_file) {
 		if (
 			caGetOption('strict', $pa_options, false)
 			?
-				preg_match("!^(".join('|', $schemes)."):\/\/[\w\-_]+(\.[\w\-_]+)*([\w\-\.,@?^=%&;:/~\+#]*[\w\-\@?^=%&/~\+#])?$!", $ps_url, $va_matches)
+				preg_match("!^(".join('|', $schemes)."):\/\/[\w\-_]+(\.[\w\-_]+)*([\w\-\.,@?^=%&;:/~\+#\(\)\[\]]*[\w\-\@?^=%&/~\+#])?$!", $ps_url, $va_matches)
 				:
-				preg_match("!(".join('|', $schemes)."):\/\/[\w\-_]+(\.[\w\-_]+)*([\w\-\.,@?^=%&;:/~\+#]*[\w\-\@?^=%&/~\+#])?!", $ps_url, $va_matches)
+				preg_match("!(".join('|', $schemes)."):\/\/[\w\-_]+(\.[\w\-_]+)*([\w\-\.,@?^=%&;:/~\+#\(\)\[\]]*[\w\-\@?^=%&/~\+#])?!", $ps_url, $va_matches)
 			) {
 			return array(
 				'protocol' => $va_matches[1],
@@ -1630,25 +1650,29 @@ function caFileIsIncludable($ps_file) {
 	/**
 	 * Returns the media class to which a MIME type belongs, or null if the MIME type does not belong to a class. Possible classes are 'image', 'video', 'audio', 'document', '3d', 'vr' and 'binary'.
 	 *
-	 * @param string $ps_mimetype A media MIME type
+	 * @param string $mimetype A media MIME type
+	 * @param array $options Options include:
+	 *		forIIIF = return IIIF presentation type values rather than CA-standard media class names. [Default is false]
 	 *
 	 * @return string The media class that includes the specified MIME type, or null if the MIME type does not belong to a class. Returned classes are 'image', 'video', 'audio', 'document', '3d', 'vr' and 'binary'
 	 */
-	function caGetMediaClass($ps_mimetype) {
-		$va_tmp = explode("/", $ps_mimetype);
+	function caGetMediaClass(string $mimetype, ?array $options=null) : ?string {
+		$tmp = explode("/", $mimetype);
 
-		switch($va_tmp[0]) {
+		$for_iiif = caGetOption('forIIIF', $options, false);
+	
+		switch($tmp[0]) {
 			case 'image':
-				return 'image';
+				return $for_iiif ? 'Image' : 'image';
 				break;
 			case 'video':
-				return 'video';
+				return $for_iiif ? 'Video' : 'video';;
 				break;
 			case 'audio':
-				return 'audio';
+				return $for_iiif ? 'Sound' : 'audio';
 				break;
 			default:
-				switch($ps_mimetype) {
+				switch($mimetype) {
 					case 'application/pdf':
 					case 'application/postscript':
 					case 'text/xml':
@@ -1660,27 +1684,27 @@ function caFileIsIncludable($ps_file) {
 					case 'application/vnd.ms-powerpoint':
 					case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
 					case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-						return 'document';
+						return $for_iiif ? 'Text' : 'document';
 						break;
 					case 'x-world/x-qtvr':
 					case 'application/x-shockwave-flash':
-						return 'video';
+						return $for_iiif ? 'Video' : 'video';
 						break;
 					case 'application/dicom':
-						return 'image';
+						return $for_iiif ? 'Image' : 'image';;
 						break;
 					case 'application/ply':
 					case 'application/stl':
 					case 'text/prs.wavefront-obj':
 					case 'application/surf':
 					case 'model/gltf+json':
-						return '3d';
+						return $for_iiif ? '3D' : '3d';
 						break;
 					case 'x-world/x-qtvr':
-						return 'vr';
+						return $for_iiif ? 'VR' : 'vr';
 						break;
 					case 'application/octet-stream':
-						return 'binary';
+						return $for_iiif ? 'Binary' : 'binary';
 						break;
 				}
 				break;
@@ -2275,14 +2299,6 @@ function caFileIsIncludable($ps_file) {
 
 		return gmdate($ps_format, (int) $va_unix_timestamps['start']);
 	}
-	# ----------------------------------------
-	/**
-	 *
-	 */
-	function caLogEvent($ps_code, $ps_message, $ps_source=null) {
-		$t_log = new EventLog();
-		return $t_log->log(array('CODE' => $ps_code, 'MESSAGE' => $ps_message, 'SOURCE' => $ps_source));
-	}
 	# ---------------------------------------
 	/**
 	 * Truncates text to a maximum length, including an ellipsis ("...")
@@ -2330,14 +2346,13 @@ function caFileIsIncludable($ps_file) {
 	/**
 	 * Determines if current request was from from command line
 	 *
-	 * @return boolean True if request wasrun from command line, false if not
+	 * @return boolean True if request was run from command line, false if not
 	 */
 	function caIsRunFromCLI() {
-		if(php_sapi_name() == 'cli' && empty($_SERVER['REMOTE_ADDR'])) {
-			return true;
-		} else {
-			return false;
-		}
+		if (in_array(PHP_SAPI, array('cli', 'cli-server', 'phpdbg'))) {
+      		return true;
+      	}
+      	return false;
 	}
 	# ---------------------------------------
 	/**
@@ -2371,7 +2386,7 @@ function caFileIsIncludable($ps_file) {
 	 *		defaultOnEmptyString = Force use of default value when option is set to an empty string). [Default is false]
 	 * @return mixed
 	 */
-	function caGetOption($pm_option, $pa_options, $pm_default=null, $pa_parse_options=null) {
+	function caGetOption($pm_option, ?array $pa_options, $pm_default=null, ?array $pa_parse_options=null) {
 		if (is_object($pa_options) && is_a($pa_options, 'Zend_Console_Getopt')) {
 			$pa_options = array($pm_option => $pa_options->getOption($pm_option));
 		}
@@ -2927,26 +2942,26 @@ function caFileIsIncludable($ps_file) {
 		global $g_ui_locale;
 		if(!$locale) { $locale = $g_ui_locale; }
 		if(!$locale && defined('__CA_DEFAULT_LOCALE__')) { $locale = __CA_DEFAULT_LOCALE__; }
-		
+	
+		$currency_specifier = $decimal_value = null;
 		// it's either "<something><decimal>" ($1000) or "<decimal><something>" (1000 EUR) or just "<decimal>" with an implicit <something>
 		try {
 			// either
 			if (preg_match("!^([^\d]+)([\d\.\,]+)$!", trim($value), $matches)) {
-				$decimal_value = (strpos($matches[2], ',') !== false) ? Zend_Locale_Format::getNumber($matches[2], ['locale' => $locale, 'precision' => 2]) : (float)$matches[2];
+				$decimal_value = Zend_Locale_Format::getNumber($matches[2], ['locale' => $locale, 'precision' => 2]);
 				$currency_specifier = trim($matches[1]);
 			// or 1
 			} else if (preg_match("!^([\d\.\,]+)([^\d]+)$!", trim($value), $matches)) {
-				$decimal_value = (strpos($matches[1], ',') !== false) ? Zend_Locale_Format::getNumber($matches[1], ['locale' => $locale, 'precision' => 2]) : (float)$matches[1];
+				$decimal_value = Zend_Locale_Format::getNumber($matches[1], ['locale' => $locale, 'precision' => 2]);
 				$currency_specifier = trim($matches[2]);
 			// or 2
 			} else if (preg_match("!(^[\d\,\.]+$)!", trim($value), $matches)) {
-				$decimal_value = (strpos($matches[1], ',') !== false) ? Zend_Locale_Format::getNumber($matches[1], ['locale' => $locale, 'precision' => 2]) : (float)$matches[1];
+				$decimal_value = Zend_Locale_Format::getNumber($matches[1], ['locale' => $locale, 'precision' => 2]);
 				$currency_specifier = null;
 			}
 		} catch (Zend_Locale_Exception $e){
 			return null;
 		}
-
 		if ($currency_specifier || ($decimal_value > 0)) {
 			return ['currency' => $currency_specifier, 'value' => round($decimal_value, 2)];
 		}
@@ -2967,7 +2982,7 @@ function caFileIsIncludable($ps_file) {
 
 			foreach($va_params_raw as $vs_param_raw) {
 				$va_tmp = explode('=', $vs_param_raw);
-				$va_opts[$va_tmp[0]] = $va_tmp[1];
+				$va_opts[$va_tmp[0]] = urldecode($va_tmp[1]);
 			}
 		}
 
@@ -3171,7 +3186,7 @@ function caFileIsIncludable($ps_file) {
 	function caUploadFileToGitHub($ps_user, $ps_token, $ps_owner, $ps_repo, $ps_git_path, $ps_local_filepath, $ps_branch = 'master', $pb_update_on_conflict=true, $ps_commit_msg = null) {
 		// check mandatory params
 		if(!$ps_user || !$ps_token || !$ps_owner || !$ps_repo || !$ps_git_path || !$ps_local_filepath) {
-			caLogEvent('DEBG', "Invalid parameters for GitHub file upload. Check your configuration!", 'caUploadFileToGitHub');
+			caLogEvent('DEBUG', "Invalid parameters for GitHub file upload. Check your configuration!", 'caUploadFileToGitHub');
 			return false;
 		}
 
@@ -3190,7 +3205,7 @@ function caFileIsIncludable($ps_file) {
 		} catch (Github\Exception\RuntimeException $e) {
 			switch($e->getCode()) {
 				case 401:
-					caLogEvent('DEBG', "Could not authenticate with GitHub. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
+					caLogEvent('DEBUG', "Could not authenticate with GitHub. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
 					break;
 				case 422:
 					if($pb_update_on_conflict) {
@@ -3201,23 +3216,23 @@ function caFileIsIncludable($ps_file) {
 							}
 							return true; // overwrite was successful if there was no exception in above statement
 						} catch (Github\Exception\RuntimeException $ex) {
-							caLogEvent('DEBG', "Could not update exiting file in GitHub. Error message was: ".$ex->getMessage()." - Code was: ".$ex->getCode(), 'caUploadFileToGitHub');
+							caLogEvent('DEBUG', "Could not update exiting file in GitHub. Error message was: ".$ex->getMessage()." - Code was: ".$ex->getCode(), 'caUploadFileToGitHub');
 							break;
 						}
 					} else {
-						caLogEvent('DEBG', "Could not upload file to GitHub. It looks like a file already exists at {$ps_git_path}.", 'caUploadFileToGitHub');
+						caLogEvent('DEBUG', "Could not upload file to GitHub. It looks like a file already exists at {$ps_git_path}.", 'caUploadFileToGitHub');
 					}
 					break;
 				default:
-					caLogEvent('DEBG', "Could not upload file to GitHub. A generic error occurred. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
+					caLogEvent('DEBUG', "Could not upload file to GitHub. A generic error occurred. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
 					break;
 			}
 			return false;
 		} catch (Github\Exception\ValidationFailedException $e) {
-			caLogEvent('DEBG', "Could not upload file to GitHub. The parameter validation failed. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
+			caLogEvent('DEBUG', "Could not upload file to GitHub. The parameter validation failed. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
 			return false;
 		} catch (Exception $e) {
-			caLogEvent('DEBG', "Could not upload file to GitHub. A generic error occurred. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
+			caLogEvent('DEBUG', "Could not upload file to GitHub. A generic error occurred. Error message was: ".$e->getMessage()." - Code was: ".$e->getCode(), 'caUploadFileToGitHub');
 			return false;
 		}
 
@@ -3235,7 +3250,7 @@ function caFileIsIncludable($ps_file) {
 	function caExportDataToResourceSpace($ps_user, $ps_key, $ps_base_url, $ps_local_filepath) {
 		// check mandatory params
 		if(!$ps_user || !$ps_key || !$ps_base_url || !$ps_local_filepath) {
-		    caLogEvent('DEBG', "Invalid parameters for ResourceSpace export. Check your configuration!", 'caExportDataToResourceSpace');
+		    caLogEvent('DEBUG', "Invalid parameters for ResourceSpace export. Check your configuration!", 'caExportDataToResourceSpace');
 			return false;
 		}
 		if (!file_exists($ps_local_filepath)) { 
@@ -3310,7 +3325,7 @@ function caFileIsIncludable($ps_file) {
                                 }
                             }
                         } else {
-                            caLogEvent('DEBG', "Could not create Collection. Check your ResourceSpace configuration", 'caExportDataToResourceSpace');
+                            caLogEvent('DEBUG', "Could not create Collection. Check your ResourceSpace configuration", 'caExportDataToResourceSpace');
                         }
                     }
                     $vs_query = 'user='.$ps_user.'&function=add_resource_to_collection&param1='.$vn_rs_id.'&param2='.$vs_collection_id;
@@ -3367,8 +3382,8 @@ function caFileIsIncludable($ps_file) {
 
 		$vs_content = curl_exec($vo_curl);
 
-		if(curl_getinfo($vo_curl, CURLINFO_HTTP_CODE) !== 200) {
-			throw new WebServiceError(_t('An error occurred while querying an external webservice'). _t(" at %1", $ps_url). " ". print_r(curl_getinfo($vo_curl), true));
+		if(($code = curl_getinfo($vo_curl, CURLINFO_HTTP_CODE)) !== 200) {
+			throw new WebServiceError(_t('An error occurred while querying an external webservice'). _t(" at %1 [HTTP code was %2]", $ps_url, $code). " ". print_r(curl_getinfo($vo_curl), true));
 		}
 		curl_close($vo_curl);
 		return $vs_content;
@@ -3501,7 +3516,7 @@ function caFileIsIncludable($ps_file) {
 		global $g_ui_locale;
 		$vs_locale = caGetOption('locale', $pa_options, $g_ui_locale);
 		
-		$ps_value = preg_replace("![\-]+!", " ", $ps_value);
+		$ps_value = preg_replace("![\-]+!u", " ", $ps_value);
 
 		$pa_values = array(caConvertFractionalNumberToDecimal(trim($ps_value), $vs_locale));
 
@@ -3707,13 +3722,21 @@ function caFileIsIncludable($ps_file) {
 		$pb_return_extracted_measurements = caGetOption('returnExtractedMeasurements', $pa_options, false);
 		$pn_precision = caGetOption('precision', $pa_options, null);
 
-		if ($ps_delimiter = caGetOption('delimiter', $pa_options, 'x')) {
-			$va_measurements = explode(strtolower($ps_delimiter), mb_strtolower($ps_expression));
+		if ($delimiter = caGetOption('delimiter', $pa_options, 'x')) {
+			if(is_array($delimiter)) {
+				$va_measurements = [];
+				foreach($delimiter as $d) {
+					if(strpos($ps_expression, $d) !== false) {
+						$va_measurements = explode(strtolower($d), mb_strtolower($ps_expression));
+						break;
+					}
+				}
+			} else {
+				$va_measurements = explode(strtolower($delimiter), mb_strtolower($ps_expression));
+			}
 		} else {
-			$ps_delimiter = '';
 			$va_measurements = array($ps_expression);
 		}
-		
 		$va_glyphs = array_keys(caGetFractionalGlyphTable());
 		
         $va_unit_map = [];
@@ -3838,11 +3861,8 @@ function caFileIsIncludable($ps_file) {
 	        if (sizeof($va_tokens) > 2000) { 
 	        	$va_tokens = array_filter($va_tokens, function($v) { return ($v > (time() - 86400)); });	// delete any token older than eight hours
 	    	}
-	    	if (sizeof($va_tokens) > 2000) { 
-	    		$va_tokens = array_slice($va_tokens, 0, 500, true); // delete last quarter of token buffer if it gets too long
-	    	}
 	    
-	        if (!isset($va_tokens[$vs_token])) { $va_tokens[$vs_token] = time(); }
+	        $va_tokens[$vs_token] = time();
 	        
 	        PersistentCache::save("csrf_tokens_{$session_id}", $va_tokens, "csrf_tokens");
 	    }
@@ -3929,6 +3949,7 @@ function caFileIsIncludable($ps_file) {
 			// Any elements means a value
 			return (is_array($pa_initial_values) && (sizeof($pa_initial_values) > 0));
 		}
+		return false;
 	}
 	# ----------------------------------------
 	/**
@@ -4083,7 +4104,7 @@ function caFileIsIncludable($ps_file) {
         if (is_null($pa_use_unicode_fraction_glyphs_for)) { $pb_use_unicode_fraction_glyphs = $o_config->get('use_unicode_fractions_for_measurements'); }
 		
 		$pn_inches_as_float = (float)preg_replace("![^\d\.]+!", "", $pn_inches_as_float);	// remove commas and such; also remove "-" as dimensions can't be negative
-		$num = ceil($pn_inches_as_float * $pn_denom);
+		$num = floor($pn_inches_as_float * $pn_denom);
 		$int = (int)($num / $pn_denom);
 		$num %= $pn_denom;
 
@@ -4167,6 +4188,7 @@ function caFileIsIncludable($ps_file) {
 	 *		locale = Locale settings to use. If omitted current default locale is used. [Default is current locale]
 	 *		omitArticle = Omit leading definite and indefinited articles, rather than moving them to the end of the text [Default is true]
 	 *		maxLength = Maximum length of returned value. [Default is 255]
+	 *		moveArticles = Move articles at the beginnning of the text to the end. [Default is true]
 	 *
 	 * @return string Converted text. If locale cannot be found $ps_text is returned truncated to "maxLength" value, but otherwise unchanged.
 	 */
@@ -4178,13 +4200,12 @@ function caFileIsIncludable($ps_file) {
 		//if (!$locale) { return mb_substr($text, 0, $max_length); }
 
 		$omit_article = caGetOption('omitArticle', $options, true);
+		$move_articles = caGetOption('moveArticles', $options, true);
 
 		$display_value = trim(preg_replace('![^\p{L}0-9 ]+!u', ' ', $text));
-		$display_value = preg_replace('![ ]+!', ' ', $display_value);
+		$display_value = preg_replace('![ ]+!u', ' ', $display_value);
 		
-		$display_value = mb_substr($display_value, 0, $max_length, 'UTF-8');
-		
-		if($locale) {
+		if($locale && $move_articles) {
 			// Move articles to end of string
 			$articles = caGetArticlesForLocale($locale) ?: [];
 
@@ -4198,16 +4219,17 @@ function caFileIsIncludable($ps_file) {
 
 		// Left-pad numbers
 		$padded = [];
-		foreach(preg_split("![ \t]+!", $display_value) as $t) {
+		foreach(preg_split("![ \t]+!u", $display_value) as $t) {
 			if(is_numeric($t)) {
 				$padded[] = str_pad($t, 10, 0, STR_PAD_LEFT).'    ';	// assume numbers don't go wider than 10 places
-			} elseif(preg_match("!^([\d]+)([A-Za-z]+)$!", $t, $m)) {
-				$padded[] = str_pad($m[1], 10, 0, STR_PAD_LEFT).str_pad(substr($m[2], 0, 4), 4, ' ', STR_PAD_LEFT);
+			} elseif(preg_match("!^([\d]+)([A-Za-z]+)$!u", $t, $m)) {
+				$padded[] = str_pad($m[1], 10, 0, STR_PAD_LEFT).str_pad(mb_substr($m[2], 0, 4), 4, ' ', STR_PAD_LEFT);
 			} else {
-				$padded[] = str_pad(substr($t, 0, 10), 14, ' ', STR_PAD_RIGHT);
+				$padded[] = str_pad(mb_substr($t, 0, 10), 14, ' ', STR_PAD_RIGHT);
 			}
 		}
 		$display_value = join(' ', $padded);
+		$display_value = mb_substr($display_value, 0, $max_length, 'UTF-8');
 		return $display_value;
 	}
 	# ----------------------------------------
@@ -4254,6 +4276,10 @@ function caFileIsIncludable($ps_file) {
 
 			foreach($va_rels as $vn_table_num => $va_rel_table_info) {
 				$va_ret[$vn_table_num] = $va_rel_table_info['table'];
+			}
+			if(isset($va_ret[56])) {
+				$t_instance = Datamodel::getInstanceByTableName('ca_objects_x_object_representations', true);
+				$va_ret[$t_instance->tableNum()] = $t_instance->tableName();
 			}
 		}
 
@@ -4888,6 +4914,7 @@ function caFileIsIncludable($ps_file) {
 	function caGetHTMLPurifier(?array $options=null) : HTMLPurifier {
 		$config = HTMLPurifier_Config::createDefault();
 		$config->set('URI.DisableExternalResources', !Configuration::load()->get('purify_allow_external_references'));
+		$config->set('Cache.SerializerPath', Configuration::load()->get('purify_serializer_path'));
 		return new HTMLPurifier($config); 
 	}
 	# ----------------------------------------
@@ -4901,6 +4928,7 @@ function caFileIsIncludable($ps_file) {
 	 * @return string Alphabet designator or null. Designators are HIRAGANA|KATAKANA|HAN|HANGUL|CYRILLIC|GREEK|HEBREW|LATIN
 	 */
 	function caIdentifyAlphabet(string $text) : ?string {
+		if(!strlen($text)) { return null; }
 		if(preg_match_all('/\p{Hiragana}/u', $text, $result)) {
 			return 'HIRAGANA';
 		} elseif(preg_match_all('/\p{Katakana}/u', $text, $result)) {
@@ -4912,12 +4940,223 @@ function caFileIsIncludable($ps_file) {
 		} elseif(preg_match_all('/(\p{Cyrillic}+)/u', $text, $result)) {
 			return 'CYRILLIC';
 		} elseif(preg_match_all('/(\p{Latin}+)/u', $text, $result)) {
-			return 'GREEK';
-		} elseif(preg_match_all('/(\p{Greek}+)/u', $text, $result)) {
-			return 'HEBREW';
-		} elseif(preg_match_all('/(\p{Hebrew}+)/u', $text, $result)) {
 			return 'LATIN';
+		} elseif(preg_match_all('/(\p{Greek}+)/u', $text, $result)) {
+			return 'GREEK';
+		} elseif(preg_match_all('/(\p{Hebrew}+)/u', $text, $result)) {
+			return 'HEBREW';
 		}
 		return null;
     }
+	# ----------------------------------------
+	/**
+	 * Convert a bundle name from configuration/profile into a usable bundle code.
+	 * In older (pre v1.7.9) versions of CollectiveAccess  attribute editor, search form 
+	 * and display placements consisted of a "ca_attribute_" prefix + the code of the
+	 * attribute (Eg. ca_attribute_description). This syntax is still supported, but
+	 * standard <table>.<element code> (Eg. ca_objects.descriotion) is now encouraged
+	 * for consistency and readability. 
+	 *
+	 * This helper will convert a name into a code. By default names old style
+	 * names are stripped of their ca_attribute_ prefix and the remainder returned.
+	 * <table>.<element code> names are stripped of their table specifiers and returned. 
+	 * <table>.<element code>.<subelement code> names are stripped of both table and subelement
+	 * code, with only element code returned. All other name forms are returned without
+	 * modification.
+	 *
+	 * If the 'convertOldStyleNamesOnly' option is set only old-style names are converted,
+	 * with all other forms returned without modification. 
+	 *
+	 * If the 'includeTablePrefix' option is set table codes will be returned with element codes
+	 * for new-style names in the form <table>.<element code>. Sub-element codes are stripped 
+	 * regardless of how 'includeTablePrefix' is set.
+	 *
+	 * @param string $name
+	 * @param array $options Options include:
+	 *		convertOldStyleNamesOnly = only convert old style 'ca_attribute_' prefixed names. [Default is false]
+	 *		includeTablePrefix = Include table in returned value when converting new-style names .[Default is false]
+	 *
+	 * @return string
+	 */
+	function caConvertBundleNameToCode(string $name, ?array $options=null) : string {
+		if(substr($name, 0, 13) === 'ca_attribute_') {
+			return str_replace('ca_attribute_', '', $name);
+		}
+		if(!($options['convertOldStyleNamesOnly'] ?? false)) {
+			$tmp = explode('.', $name);
+			if(sizeof($tmp) > 1) {
+				if(Datamodel::tableExists($tmp[0])) {
+					if($options['includeTablePrefix'] ?? false) {
+						return $tmp[0].'.'.$tmp[1];
+					}
+					return $tmp[1];
+				}
+			}
+		}
+ 		return $name;
+ 	}
+	# ----------------------------------------
+	/**
+	 * Verify that path relative to a base directory is valid and doesn't include
+	 * path traversal that takes it out of the base directory.
+	 *
+	 * @param string $relative_filepath
+	 * @param string $base_directory
+	 * @param array $options Options include:
+	 *		throwException = Throw application exception is path is invalid. [Default is false]
+	 *
+	 * @return string Return absolute path or null if path is invalid
+	 */
+	function caSanitizeRelativeFilepath(string $relative_filepath, string $base_directory, ?array $options=null) : ?string {
+		$f = realpath($base_directory.'/'.$relative_filepath);
+		
+		if(!is_null($f)) {
+			$bd = realpath($base_directory);
+		
+			if(is_null($bd) || !preg_match("!^{$bd}/!u", $f)) { 
+				// see if sub-directory is symlink
+				$tmp = explode('/', $relative_filepath);
+				$tbd = $base_directory;
+				while($t = array_shift($tmp)) {
+					if(!sizeof($tmp)) { break; }
+					$tbd .= '/'.$t;
+					if(realpath($tbd) !== $tbd) {
+						return caSanitizeRelativeFilepath(join('/', $tmp), $tbd);
+					}
+				}
+				
+				$f = null;
+			}
+		}
+		
+		if(is_null($f) && caGetOption('throwException', $options, false)) {
+			throw new ApplicationException(_t('Relative file path is invalid'));
+		}
+		return $f;
+	}
+	# ----------------------------------------
+	/**
+	 * Check if background processing using the task queue is enabled
+	 *
+	 * @return bool
+	 */
+	function caTaskQueueIsEnabled() : bool {
+		if(defined('__CA_QUEUE_ENABLED__')) {
+			return  __CA_QUEUE_ENABLED__;
+		}
+		$config = Configuration::load();
+		return (bool)$config->get('run_task_queue');
+	}
+	# ----------------------------------------
+	/**
+	 * Evaluate expression on model instance or current row of search result
+	 * 
+	 * @param BaseModel|SearchResult $item
+	 * @param string $expression
+	 * @param array $options Options include:
+	 *		context = Prefix to add to tag. [Default is null]
+	 *		... other optiond are passed through to get()
+	 *
+	 * @return bool
+	 */
+	function caEvaluateExpression($item, string $expression, ?array $options=null) : bool {
+		$expr_tags = caGetTemplateTags($expression);
+		$values = caGetTagValuesFromDataItem($item, $expr_tags, $options);
+		return (bool)ExpressionParser::evaluate($expression, $values);
+	}
+	# ----------------------------------------
+	/**
+	 * Return array with values for tags from a model instance or current row of search result
+	 *
+	 * @param BaseModel|SearchResult $item
+	 * @param array $tags
+	 * @param array $options Options include:
+	 *		context = Prefix to add to tag. [Default is null]
+	 *		... other optiond are passed through to get()
+	 *
+	 * @return array
+	 */
+	function caGetTagValuesFromDataItem($item, array $tags, ?array $options=null) : array {
+		if(!is_array($options)) {
+			$options = ['convertCodesToIdno' => true, 'returnAsArray' => false];
+		}	
+		$context = caGetOption('context', $options, null);
+		$vars = [];
+		if(is_array($tags)) {
+			foreach($tags as $tag) {
+				$v = $item->get(($context ? "{$context}." : '').$tag, $options);
+				$vars[$tag] = $v;
+			}
+		}
+		return $vars;
+	}
+	# ----------------------------------------
+	/**
+	 * Randomize order of array while preserving keys
+	 *
+	 * @param array
+	 * @return array
+	 */
+	function caShuffleArray(array $array) : array { 
+		$keys = array_keys($array); 
+		shuffle($keys); 
+		
+		$rarray = []; 
+		foreach ($keys as $key) {
+			$rarray[$key] = $array[$key]; 
+		}
+		return $rarray; 
+	}
+	# ----------------------------------------
+	/**
+	 * Return instance attached to attribute value.
+	 *
+	 * @param int $value_id
+	 *
+	 * @return BaseModel Instance or null if no match
+	 */
+	function caGetInstanceForValueID(int $value_id) : ?BaseModel {
+		$val = ca_attribute_values::find($value_id, ['returnAs' => 'arrays']);
+		if(!is_array($val)) { return null; }
+		
+		$attribute_id = $val[0]['attribute_id'];
+		$attr = ca_attributes::find($attribute_id, ['returnAs' => 'arrays']);
+		if(!is_array($attr)) { return null; }
+		
+		return Datamodel::getInstance($attr[0]['table_num'], true, $attr[0]['row_id']);
+	}
+	# ----------------------------------------
+	/**
+	 * Check HTTP response code for URL. Any code indicating the URL is live (Eg. in the 200 range)
+	 * will result in a return value of true. If the allowRedirects option is set then redirects
+	 * (HTTP response codes in the 300 range) will also result in a true return value.
+	 *
+	 * @param string $url The url to check
+	 * @param array $options Options include:
+	 *		allowRedirects = If true, redirected URLs are considers to be valid, working urls. [Default is false]
+	 *
+	 * @return bool True if URL appears to be valid, false if not.
+	 */
+	function caUrlExists(string $url, ?array $options=null) : bool { 
+		$allow_redirects = caGetOption('allowRedirects', $options, true);
+		
+		if(!is_array($headers = @get_headers($url))) { return false; }
+	
+		if(preg_match("!([\d]{3}) OK$!i", $headers[0], $m)) {
+			$sc = (int)$m[1];
+			if(($sc >= 200) && ($sc <= 299)) { return true; }
+			if($allow_redirects && ($sc >= 300) && ($sc <= 399)) { return true; }
+		}
+		return false;
+	}
+	# ----------------------------------------
+	/**
+	 * Return current HTTP response object
+	 *
+	 * @return ResponseHTTP
+	 */
+	function caGetHTTPResponse() : ResponseHTTP { 		
+		$app = AppController::getInstance();
+		return $app->getResponse();
+	}
 	# ----------------------------------------

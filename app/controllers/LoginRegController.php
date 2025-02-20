@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2013-2022 Whirl-i-Gig
+ * Copyright 2013-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -40,6 +40,11 @@ class LoginRegController extends BasePawtucketController {
 		if ($po_request->getAppConfig()->get(['dontAllowRegistrationAndLogin', 'dont_allow_registration_and_login'])) {
 			throw new ApplicationException('Login/registration not allowed');
 		}
+		
+		if (AuthenticationManager::supports(__CA_AUTH_ADAPTER_FEATURE_USE_ADAPTER_LOGIN_FORM__)) {
+		    $vb_auth_success = $po_request->doAuthentication(array('dont_redirect' => true, 'noPublicUsers' => false, 'allow_external_auth' => ($po_request->getController() == 'LoginReg')));
+		}
+		
 		caSetPageCSSClasses(array("loginreg"));
 	}
 	# -------------------------------------------------------
@@ -254,19 +259,18 @@ class LoginRegController extends BasePawtucketController {
 	}
 	# ------------------------------------------------------
 	function login() {
+		$group_id = Session::getVar("join_user_group_id");
 		if (!$this->request->doAuthentication(array('dont_redirect' => true, 'user_name' => html_entity_decode($this->request->getParameter('username', pString)), 'password' => html_entity_decode($this->request->getParameter('password', pString))))) {
 			$this->view->setVar("message", _t("Login failed"));
 			$this->loginForm();
 		} else {
 			# --- user is joining a user group from a supplied link
-			if(Session::getVar("join_user_group_id") && $this->_validateGroup(Session::getVar("join_user_group_id"))){
-				if(!$this->request->user->inGroup(Session::getVar("join_user_group_id"))){
-					$this->request->user->addToGroups(Session::getVar("join_user_group_id"));
-					Session::setVar('join_user_group_id', '');
+			if($group_id && $this->_validateGroup($group_id)){
+				if(!$this->request->user->inGroup($group_id)){
+					$this->request->user->addToGroups($group_id);
 					$vs_group_message = _t(" and added to the group");
-				}else{
-					Session::setVar('join_user_group_id', '');
 				}
+				Session::setVar('join_user_group_id', '');
 			}
 			if($this->request->isAjax()){
 				$this->view->setVar("message", _t("You are now logged in"));
@@ -284,6 +288,9 @@ class LoginRegController extends BasePawtucketController {
 				}
 				$vs_url = caNavUrl($this->request, $vs_module_path, $vs_controller, $vs_action);
 				$this->notification->addNotification(_t("You have been logged in").($vs_group_message ? "<br/>{$vs_group_message}" : ""), __NOTIFICATION_TYPE_INFO__);
+				
+				ca_ip_whitelist::whitelist($this->request, 24*60*60, 'Login');
+				
 				$this->response->setRedirect($vs_url);
 			}
 		}

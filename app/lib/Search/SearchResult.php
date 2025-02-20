@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2008-2023 Whirl-i-Gig
+ * Copyright 2008-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,21 +29,11 @@
  *
  * ----------------------------------------------------------------------
  */
- 
- /**
-  *
-  */
-
-# ----------------------------------------------------------------------
-# --- Import classes
-# ----------------------------------------------------------------------
-include_once(__CA_LIB_DIR__."/BaseObject.php");
 include_once(__CA_LIB_DIR__."/Media/MediaInfoCoder.php");
 include_once(__CA_LIB_DIR__."/File/FileInfoCoder.php");
 include_once(__CA_LIB_DIR__."/Parsers/TimeExpressionParser.php");
 include_once(__CA_LIB_DIR__."/Parsers/TimecodeParser.php");
 include_once(__CA_LIB_DIR__."/ApplicationChangeLog.php");
-
 
 # ----------------------------------------------------------------------
 class SearchResult extends BaseObject {
@@ -55,6 +45,8 @@ class SearchResult extends BaseObject {
 	// ----
 	
 	private $opa_options;
+	
+	protected $ops_subject_pk;
 
 	/**
 	 * @var IWLPlugSearchEngineResult
@@ -607,7 +599,7 @@ class SearchResult extends BaseObject {
 		}
 		
 		if(isset($pa_options['checkAccess']) && is_array($pa_options['checkAccess']) && sizeof($pa_options['checkAccess']) && $t_rel_instance->hasField('access')) {
-			$vs_access_sql = " AND ({$ps_tablename}.access IN (".join(",", $pa_options['checkAccess']) ."))";	
+			$vs_access_sql = " AND (p.access IN (".join(",", $pa_options['checkAccess']) ."))";	
 		}
 		
 		$vs_pk = $t_rel_instance->primaryKey();
@@ -877,19 +869,34 @@ class SearchResult extends BaseObject {
 	/**
 	 * 
 	 */
-	public function prefetchChangeLogData($ps_tablename, $pn_start, $pn_num_rows) {
+	public function prefetchCreatedOnChangeLogData($ps_tablename, $pn_start, $pn_num_rows) {
 		if (sizeof($va_row_ids = $this->getRowIDsToPrefetch($pn_start, $pn_num_rows)) == 0) { return false; }
 		$vs_key = caMakeCacheKeyFromOptions(array_merge($va_row_ids, array('_table' => $ps_tablename)));
-		if (self::$s_timestamp_cache['fetched'][$vs_key] ?? null) { return true; }
+		if (self::$s_timestamp_cache['fetchedCreatedOn'][$vs_key] ?? null) { return true; }
 		
 		$o_log = new ApplicationChangeLog();
 	
 		if (!is_array(self::$s_timestamp_cache['created_on'][$ps_tablename] ?? null)) { self::$s_timestamp_cache['created_on'][$ps_tablename] = array(); }
 		self::$s_timestamp_cache['created_on'][$ps_tablename] += $o_log->getCreatedOnTimestampsForIDs($ps_tablename, $va_row_ids);
+		
+		self::$s_timestamp_cache['fetchedCreatedOn'][$vs_key] = true;
+		return true;
+	}
+	# ------------------------------------------------------------------
+	/**
+	 * 
+	 */
+	public function prefetchModifiedOnChangeLogData($ps_tablename, $pn_start, $pn_num_rows) {
+		if (sizeof($va_row_ids = $this->getRowIDsToPrefetch($pn_start, $pn_num_rows)) == 0) { return false; }
+		$vs_key = caMakeCacheKeyFromOptions(array_merge($va_row_ids, array('_table' => $ps_tablename)));
+		if (self::$s_timestamp_cache['fetchedModifiedOn'][$vs_key] ?? null) { return true; }
+		
+		$o_log = new ApplicationChangeLog();
+	
 		if (!is_array(self::$s_timestamp_cache['last_changed'][$ps_tablename] ?? null)) { self::$s_timestamp_cache['last_changed'][$ps_tablename] = array(); }
 		self::$s_timestamp_cache['last_changed'][$ps_tablename] += $o_log->getLastChangeTimestampsForIDs($ps_tablename, $va_row_ids);
 
-		self::$s_timestamp_cache['fetched'][$vs_key] = true;
+		self::$s_timestamp_cache['fetchedModifiedOn'][$vs_key] = true;
 		return true;
 	}
 	# ------------------------------------------------------------------
@@ -1002,6 +1009,7 @@ class SearchResult extends BaseObject {
 	 *			unserialize = When fetching intrinsic value of type FT_VARS (serialized variables) return unserialized value. [Default is false]
 	 *			list = A list code or array or list codes to restrict returned values to when referencing ca_list_items values. [Default is null]
 	 *          primaryOnly = Return only related representations marked "primary", otherwise return all representations. Has no effect when not pulling related representations. [Default is false]
+	 *			dontReturnDefault = Don't use metadata element default value when value is empty. [Default is false]
 	 *			
 	 *		[Formatting options for strings and arrays]
 	 *			template = Display template use when formatting return values. @see http://docs.collectiveaccess.org/wiki/Display_Templates. [Default is null]
@@ -1025,6 +1033,7 @@ class SearchResult extends BaseObject {
 	 *			trim = Trim white space from beginning and end of string. [Default is false]
 	 *			start = Return all values trimmed to start at the specified character. [Default is null]
 	 *			length = Return all values truncated to a maximum length. [Default is null]
+	 *			htmlEncode = Html encode value [Default is false]
 	 *			truncate = Return all values from the beginning truncated to a maximum length; equivalent of passing start=0 and length. [Default is null]
 	 *			ellipsis = Add ellipsis ("...") to truncated values. Values will be set to the truncated length including the ellipsis. Eg. a value truncated to 12 characters will include 9 characters of text and 3 characters of ellipsis. [Default is false]
 	 *			convertLineBreaks = Convert newlines to <br/> tags. [Default is false]
@@ -1038,6 +1047,7 @@ class SearchResult extends BaseObject {
 	 *			removeLastItems = Number of levels from bottom of hierarchy before returning. [Default is null]
 	 *			hierarchyDirection = Order in which to return hierarchical levels. Set to either "asc" or "desc". "Asc"ending returns hierarchy beginning with the root; "desc"ending begins with the child furthest from the root. [Default is asc]
  	 *			allDescendants = Return all items from the full depth of the hierarchy when fetching children. By default only immediate children are returned. [Default is false]
+	 *			includeSelf = Return current row when fetching children or descendants. By default only children or descendants are returned. [Default is false]
 	 * 			hierarchyDelimiter = Characters to place in between separate hiearchy levels. Defaults to the 'delimiter' option.
 	 *          filterTypes = A list of types. Only hierarchy items with specified types will be returned. [Default is null]
  	 *
@@ -1179,10 +1189,10 @@ class SearchResult extends BaseObject {
 		if ($va_path_components['table_name'] != $this->ops_table_name) {
 			$vs_access_chk_key  = $va_path_components['table_name'].($va_path_components['field_name'] ? '.'.$va_path_components['field_name'] : '');
 		} else {
-			$vs_access_chk_key  = $va_path_components['field_name'];
+			$vs_access_chk_key  = $va_path_components['field_name'] ?? null;
 		}
 
-		if (($va_path_components['field_name'] !== 'access') && (caGetBundleAccessLevel($va_path_components['table_name'], $vs_access_chk_key) == __CA_BUNDLE_ACCESS_NONE__)) {
+		if (($va_path_components['field_name'] !== 'access') && (caGetBundleAccessLevel($va_path_components['table_name'], $vs_access_chk_key ?? Datamodel::primaryKey($va_path_components['table_name'])) == __CA_BUNDLE_ACCESS_NONE__)) {
 			return null;
 		}
 		
@@ -1220,6 +1230,7 @@ class SearchResult extends BaseObject {
 		
 			switch($va_path_components['hierarchical_modifier']) {
 				case 'parent':
+				case 'parents':
 					$vs_opt_md5 = caMakeCacheKeyFromOptions($pa_options);
 					if ($va_path_components['related']) {
 						// [RELATED TABLE PARENT]
@@ -1253,7 +1264,9 @@ class SearchResult extends BaseObject {
 							}
 						}
 						
-						$va_parent_ids = array_slice($va_parent_ids, 0, 1);
+						if($va_path_components['hierarchical_modifier'] === 'parent') {
+							$va_parent_ids = array_slice($va_parent_ids, 0, 1);
+						}
 					
 						if (!($qr_hier = $t_instance->makeSearchResult($va_path_components['table_name'], $va_parent_ids, $pa_options))) {
 							return $pa_options['returnAsArray'] ? array() : null;
@@ -1454,7 +1467,15 @@ class SearchResult extends BaseObject {
 					goto filter;
 					break;
 				case 'children':
+				case 'descendants':
+				case 'branch':
 					// grab children 
+					if($va_path_components['hierarchical_modifier'] === 'descendants') {
+						$pa_options['allDescendants'] = true;
+					} elseif($va_path_components['hierarchical_modifier'] === 'branch') {
+						$pa_options['allDescendants'] = true;
+						$pa_options['includeSelf'] = true;
+					}
 					$vs_opt_md5 = caMakeCacheKeyFromOptions($pa_options);
 					if ($va_path_components['related']) {
 						// [RELATED TABLE CHILDREN]
@@ -1482,9 +1503,18 @@ class SearchResult extends BaseObject {
 							||
 							!sizeof(SearchResult::$opa_hierarchy_children_prefetch_cache[$va_path_components['table_name']][$vn_id][$vs_opt_md5])
 						){ 
-							continue;
+							if($pa_options['includeSelf'] ?? false) {
+								SearchResult::$opa_hierarchy_children_prefetch_cache[$va_path_components['table_name']][$vn_id][$vs_opt_md5] = [];
+							} else {
+								continue;
+							}
 						}
-						$qr_hier = $t_instance->makeSearchResult($va_path_components['table_name'], SearchResult::$opa_hierarchy_children_prefetch_cache[$va_path_components['table_name']][$vn_id][$vs_opt_md5], $pa_options);
+						
+						$child_ids = SearchResult::$opa_hierarchy_children_prefetch_cache[$va_path_components['table_name']][$vn_id][$vs_opt_md5];
+						if(($pa_options['includeSelf'] ?? false) && !($va_path_components['related'] ?? false)) {
+							array_unshift($child_ids, $vn_id);
+						}
+						$qr_hier = $t_instance->makeSearchResult($va_path_components['table_name'], $child_ids, $pa_options);
 						
 						$va_tmp = array($va_path_components['table_name']);
 						if ($va_path_components['field_name']) { $va_tmp[] = $va_path_components['field_name']; }
@@ -1505,6 +1535,8 @@ class SearchResult extends BaseObject {
 					$vm_val = $va_hier_list;
 					goto filter;
 					break;
+				case 'next':
+				case 'previous':
 				case 'siblings':
 					// grab siblings 
 					$vs_opt_md5 = caMakeCacheKeyFromOptions($pa_options);
@@ -1536,20 +1568,54 @@ class SearchResult extends BaseObject {
 						){ 
 							continue;
 						}
+						;
+						if(in_array($va_path_components['hierarchical_modifier'], ['previous', 'next'], true) && !caGetOption('sort', $pa_options, null) && ($sort_idno_fld = $t_instance->getProperty('ID_NUMBERING_SORT_FIELD'))) {
+							$pa_options['sort'] = $t_instance->tableName().".{$sort_idno_fld}";
+						}
 						$qr_hier = $t_instance->makeSearchResult($va_path_components['table_name'], SearchResult::$opa_hierarchy_siblings_prefetch_cache[$va_path_components['table_name']][$vn_id][$vs_opt_md5], $pa_options);
-						
+					
 						$va_tmp = array($va_path_components['table_name']);
 						if ($va_path_components['field_name']) { $va_tmp[] = $va_path_components['field_name']; }
 						if ($va_path_components['subfield_name']) { $va_tmp[] = $va_path_components['subfield_name']; }
 						$vs_hier_fld_name = join(".", $va_tmp);
 							
 						$vs_pk = $t_instance->primaryKey();
-						while($qr_hier->nextHit()) {
-							$vm_val = $qr_hier->get($vs_hier_fld_name, $pa_options);
-							$va_hier_list[$qr_hier->get($va_path_components['table_name'].'.'.$vs_pk)] = $vb_return_as_array ? array_shift($vm_val) : $vm_val;;
+						if(in_array($va_path_components['hierarchical_modifier'], ['previous', 'next'], true)) {
+							$max = caGetOption('max', $pa_options, 1);
+							$ids = $filtered_hier_list = [];
+							while($qr_hier->nextHit()) {
+								$id = $qr_hier->get($va_path_components['table_name'].'.'.$vs_pk);
+								
+								if($id == $vn_row_id) {
+									if ($va_path_components['hierarchical_modifier'] === 'next') {
+										while(($max > 0) && $qr_hier->nextHit()) {
+											$rel_id = $qr_hier->get($va_path_components['table_name'].'.'.$vs_pk);
+											$vm_val = $qr_hier->get($vs_hier_fld_name, $pa_options);
+											$filtered_hier_list[$rel_id] = $vb_return_as_array ? array_shift($vm_val) : $vm_val;
+											$max--;
+										}
+									} else {
+										while(($max > 0) && sizeof($ids)) {
+											$rel_id = array_pop($ids);
+											$ci = $qr_hier->currentIndex();
+											$qr_hier->seek($ci);
+											$vm_val = $qr_hier->get($vs_hier_fld_name, $pa_options);
+											$filtered_hier_list[$rel_id] = $vb_return_as_array ? array_shift($vm_val) : $vm_val;
+											$max--;
+										}
+									}
+									$va_hier_list = $filtered_hier_list;
+									break;
+								}
+								$ids[] = $id;
+							}
+						} else {
+							while($qr_hier->nextHit()) {
+								$vm_val = $qr_hier->get($vs_hier_fld_name, $pa_options);
+								$va_hier_list[$qr_hier->get($va_path_components['table_name'].'.'.$vs_pk)] = $vb_return_as_array ? array_shift($vm_val) : $vm_val;
+							}
 						}
 					}
-					
 					$va_hier_list = $do_highlighting ? array_map($this->highlight, $va_hier_list) : $va_hier_list;
 					if (!$vb_return_as_array) { 
 						return $vb_return_as_count ? sizeof($va_hier_list) : join($vs_hierarchical_delimiter, $va_hier_list);
@@ -1602,7 +1668,7 @@ class SearchResult extends BaseObject {
 //
 				if ($va_path_components['field_name'] == 'created') {
 					if (!isset(self::$s_timestamp_cache['created_on'][$this->ops_table_name][$vn_row_id])) {
-						$this->prefetchChangeLogData($this->ops_table_name, $this->opo_engine_result->currentRow(), $this->getOption('prefetch'));
+						$this->prefetchCreatedOnChangeLogData($this->ops_table_name, $this->opo_engine_result->currentRow(), $this->getOption('prefetch'));
 					}
 			
 					if ($vb_return_as_array) {
@@ -1646,7 +1712,7 @@ class SearchResult extends BaseObject {
 //		
 				if ($va_path_components['field_name'] == 'lastModified') {
 					if (!isset(self::$s_timestamp_cache['last_changed'][$this->ops_table_name][$vn_row_id])) {
-						$this->prefetchChangeLogData($this->ops_table_name, $this->opo_engine_result->currentRow(), $this->getOption('prefetch'));
+						$this->prefetchModifiedOnChangeLogData($this->ops_table_name, $this->opo_engine_result->currentRow(), $this->getOption('prefetch'));
 					}
 			
 					if ($vb_return_as_array) {
@@ -1718,7 +1784,7 @@ class SearchResult extends BaseObject {
 						$this->prefetch($va_path_components['table_name'], $this->opo_engine_result->currentRow(), $this->getOption('prefetch'), $pa_options);	
 					}
 					
-					$vm_val = $t_instance->renderBundleForDisplay($va_path_components['field_name'], $vn_row_id, self::$s_prefetch_cache[$va_path_components['table_name']][$vn_row_id][$vs_opt_md5], $va_val_opts);
+					$vm_val = $t_instance->renderBundleForDisplay($va_path_components['field_name'].($va_path_components['subfield_name'] ? '.'.$va_path_components['subfield_name'] : ''), $vn_row_id, self::$s_prefetch_cache[$va_path_components['table_name']][$vn_row_id][$vs_opt_md5], $va_val_opts);
 					
 					if ($pa_options['returnWithStructure'] ?? null) { 
 						if ($pa_options['returnAllLocales'] ?? null) { 
@@ -1877,11 +1943,11 @@ class SearchResult extends BaseObject {
 			if(is_array($vm_val)) {
 				foreach($vm_val as $i => $v) {
 					if(is_array($v)) { continue; }
-					if(!preg_match('!(<br>|<br/>|<p>)!i', $v)) {
+					if($v === strip_tags($v, ['a', 'i', 'b', 'em', 'strong'])) {
 						$vm_val[$i] = nl2br($v);
 					}
 				}
-			} elseif(!preg_match('!(<br[^>]*>|<br[^/]*/>|<p[^>]*>)!i', $vm_val)) {
+			} elseif($vm_val === strip_tags($vm_val, ['a', 'i', 'b', 'em', 'strong'])) {
 				$vm_val = nl2br($vm_val);
 			}
 		} elseif ($vb_convert_line_breaks) {
@@ -1989,6 +2055,14 @@ class SearchResult extends BaseObject {
 				$va_path_components['field_name'] = $va_path_components['components'][1] = 'preferred_labels';
 				$va_path_components['subfield_name'] = $va_path_components['components'][2] = $t_rel_instance->getLabelDisplayField();
 				$va_path_components['num_components'] = sizeof($va_path_components['components']);
+				
+				// Return primary key (which is always accessible) when user does not have access to label
+				if(caGetBundleAccessLevel($va_path_components['table_name'], $va_path_components['field_name']) == __CA_BUNDLE_ACCESS_NONE__) {
+					$va_path_components['field_name'] = $va_path_components['components'][1] = $t_rel_instance->primaryKey();
+					$va_path_components['subfield_name'] = null;
+					unset($va_path_components['components'][2]);
+					$va_path_components['num_components'] = sizeof($va_path_components['components']);
+				}
 			}	
 		}
 		
@@ -2024,6 +2098,7 @@ class SearchResult extends BaseObject {
 		// Make sure spec has a table name, otherwise we can get caught in an infinite loop when we pull using the spec
 		if ((substr($va_spec[0], 0, 3) !== 'ca_') || !Datamodel::tableExists($va_spec[0])) { array_unshift($va_spec, $va_path_components['table_name']); }
 		
+		$row_ids = [];
 		while($qr_rel->nextHit()) {
 			$vm_val = $qr_rel->get(join(".", $va_spec), $pa_options);
 			if (is_array($pa_check_access) && sizeof($pa_check_access) && $t_rel_instance->hasField('access') && !in_array($qr_rel->get($va_path_components['table_name'].".access"), $pa_check_access)) {
@@ -2059,10 +2134,6 @@ class SearchResult extends BaseObject {
 		
 		if ($pa_options['unserialize'] && !$pa_options['returnAsArray']) { return array_shift($va_return_values); }	
 		if ($pa_options['returnAsArray']) { return is_array($va_return_values) ? $va_return_values : array(); } 
-		
-		if ($vb_return_as_link) {
-			$va_return_values = caCreateLinksFromText($va_return_values, $t_rel_instance->tableName(), array($va_relation_info[$vs_pk]));
-		}
 		
 		return (sizeof($va_return_values) > 0) ? join($pa_options['delimiter'], $va_return_values) : null;
 	}
@@ -2155,7 +2226,7 @@ class SearchResult extends BaseObject {
 							continue;
 						}
 					}
-					$vs_val_proc = $va_label[$va_path_components['subfield_name'] ? $va_path_components['subfield_name'] : $pt_instance->getLabelDisplayField()];
+					$vs_val_proc = $va_label[($va_path_components['subfield_name'] ?? null) ? $va_path_components['subfield_name'] : $pt_instance->getLabelDisplayField()];
 					
 					switch($pa_options['output']) {
 						case 'text':
@@ -2270,7 +2341,7 @@ class SearchResult extends BaseObject {
 					$vb_dont_return_value = false;
 					$vs_element_code = $o_value->getElementCode();
 					
-					if ($vb_return_value_id) {
+					if ($vb_return_value_id && (!$va_path_components['subfield_name'] || ($va_path_components['subfield_name'] === $vs_element_code))) {
 						$va_return_values[(int)$vn_id][] = $o_value->getValueID();
 						continue;
 					}
@@ -2446,12 +2517,12 @@ class SearchResult extends BaseObject {
                                         if (preg_match("!\[([^\]]+)!", $vs_val_proc, $va_matches)) {
                                             $va_tmp = explode(',', $va_matches[1]);
                                             if ((sizeof($va_tmp) == 2) && (is_numeric($va_tmp[0])) && (is_numeric($va_tmp[1]))) {
-                                                $vs_val_proc = array('latitude' => trim($va_tmp[0]), 'longitude' => trim($va_tmp[1]), 'path' => trim($va_matches[1]), 'label' => $this->ops_text_value);
+                                                $vs_val_proc = array('latitude' => trim($va_tmp[0]), 'longitude' => trim($va_tmp[1]), 'path' => trim($va_matches[1]), 'label' => $vs_val_proc);
                                             } else {
-                                                $vs_val_proc = array('latitude' => null, 'longitude' => null, 'path' => null, 'label' => $this->ops_text_value);
+                                                $vs_val_proc = array('latitude' => null, 'longitude' => null, 'path' => null, 'label' => $vs_val_proc);
                                             }
                                         } else {
-                                            $vs_val_proc = array('latitude' => null, 'longitude' => null, 'path' => null, 'label' => $this->ops_text_value);
+                                            $vs_val_proc = array('latitude' => null, 'longitude' => null, 'path' => null, 'label' => $vs_val_proc);
                                         }
                                     }
 									$vb_dont_return_value = false;
@@ -2486,7 +2557,7 @@ class SearchResult extends BaseObject {
 								}
 								continue(2);
 							default:
-								if (in_array($o_value->getDisplayValue(array('output' => 'idno')), $pa_exclude_idnos)) {
+								if (in_array($o_value->getDisplayValue(array('output' => 'idno', 'doRefSubstitution' => false)), $pa_exclude_idnos)) {
 									continue(2);
 								}
 								$vs_val_proc = $o_value->getDisplayValue(array_merge($pa_options, array('output' => $pa_options['output'])));
@@ -2503,7 +2574,7 @@ class SearchResult extends BaseObject {
 					$va_spec = $va_path_components['components'];
 					
 					array_pop($va_spec);
-					$va_acc[join('.', $va_spec).'.'.$vs_element_code] = $o_value->getDisplayValue(array_merge($pa_options, array('output' => 'idno')));
+					$va_acc[join('.', $va_spec).'.'.$vs_element_code] = $o_value->getDisplayValue(array_merge($pa_options, array('output' => 'idno', 'doRefSubstitution' => false)));
 					
 					if (!$vb_dont_return_value) {
 						$vb_did_return_value = true;
@@ -2555,7 +2626,7 @@ class SearchResult extends BaseObject {
 			}
 		} else {
 			// is blank
-			$default_value = ca_metadata_elements::getElementDefaultValue($va_path_components['subfield_name'] ? $va_path_components['subfield_name'] : $va_path_components['field_name']);
+			$default_value = ($pa_options['dontReturnDefault'] ?? false) ? '' : ca_metadata_elements::getElementDefaultValue($va_path_components['subfield_name'] ? $va_path_components['subfield_name'] : $va_path_components['field_name']);
 			
 			if (($pa_options['returnWithStructure'] ?? null) && ($pa_options['returnBlankValues'] ?? null)) {
 				$va_return_values[(int)$vn_id][null][null][$e = $va_path_components['subfield_name'] ? $va_path_components['subfield_name'] : $va_path_components['field_name']] = $default_value;
@@ -2719,6 +2790,9 @@ class SearchResult extends BaseObject {
 						} elseif ((isset($pa_options['returnPath']) && ($pa_options['returnPath'])) || ($vs_info_element == 'path')) {
 							$va_return_values[$vn_id][$vm_locale_id] = $this->getMediaPath($va_path_components['table_name'].'.'.$va_path_components['field_name'], $vs_version, $pa_options);
 						} else {
+							if($pa_options['returnTagWithPath'] ?? false) {
+								$pa_options['usePath'] = true;
+							}
 							$va_return_values[$vn_id][$vm_locale_id] = $this->getMediaTag($va_path_components['table_name'].'.'.$va_path_components['field_name'], $vs_version, $pa_options);
 						}
 					}
@@ -2807,7 +2881,7 @@ class SearchResult extends BaseObject {
 							}
 						}
 						
-						$va_return_values[$vn_id][$vm_locale_id][] = $d;
+						$va_return_values[$vn_i][$vn_locale_id][] = $d;
 					}
 				}
 				break;
@@ -2878,6 +2952,7 @@ class SearchResult extends BaseObject {
 	 *		trim = Trim white space from beginning and end of string. [Default is false]
 	 *		start = Return all values trimmed to start at the specified character. [Default is null]
 	 *		length = Return all values truncated to a maximum length. [Default is null]
+	 *		htmlEncode = Html encode value [Default is false]
 	 *		truncate = Return all values from the beginning truncated to a maximum length; equivalent of passing start=0 and length. [Default is null]
 	 *		ellipsis = Add ellipsis ("...") to truncated values. Values will be set to the truncated length including the ellipsis. Eg. a value truncated to 12 characters will include 9 characters of text and 3 characters of ellipsis. [Default is false]
 	 *		sort = Sort returned values. [Default is false]
@@ -2916,6 +2991,9 @@ class SearchResult extends BaseObject {
 						}
 						if($pa_options['striptags'] || $pa_options['striptags']) {
 							$vs_val = strip_tags($vs_val);
+						}
+						if($pa_options['htmlEncode']) {
+							$vs_val = htmlentities($vs_val);
 						}
 						if ($pa_options['truncate'] && ($pa_options['truncate'] > 0)) { 
 							$pa_options['start'] = 0;
@@ -2971,7 +3049,12 @@ class SearchResult extends BaseObject {
 					if(($pa_options['striptags'] ?? false) || ($pa_options['striptags'] ?? false)) {
 						$vs_val = strip_tags($vs_val);
 					}
-					if (($pa_options['truncate'] ?? null) && ($pa_options['truncate'] > 0)) { 
+
+					if($pa_options['htmlEncode'] ?? false) {
+						$vs_val = htmlentities($vs_val);
+					}
+					
+					if (isset($pa_options['truncate']) && ($pa_options['truncate'] > 0)) { 
 						$pa_options['start'] = 0;
 						$pa_options['length'] = (int)$pa_options['truncate'];
 					}
@@ -3102,11 +3185,14 @@ class SearchResult extends BaseObject {
 		if (method_exists($pt_instance, 'setLabelTypeList')) {
 			$pt_instance->setLabelTypeList($this->opo_subject_instance->getAppConfig()->get(($pa_path_components['field_name'] == 'nonpreferred_labels') ? "{$vs_table_name}_nonpreferred_label_type_list" : "{$vs_table_name}_preferred_label_type_list"));
 		}
-		if (isset($pa_options['convertCodesToIdno']) && $pa_options['convertCodesToIdno'] && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
+		
+		$convert_codes_to_idno = caGetOption('convertCodesToIdno', $pa_options, false);
+		
+		if ($convert_codes_to_idno && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
 			$vs_prop = caGetListItemIdno($vs_prop);
-		} elseif (isset($pa_options['convertCodesToIdno']) && $pa_options['convertCodesToIdno'] && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
+		} elseif($convert_codes_to_idno && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
 			$vs_prop = caGetListItemIdno(caGetListItemIDForValue($vs_list_code, $vs_prop));
-	    } elseif($vb_convert_codes_to_display_text && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
+	    } elseif($convert_codes_to_idno && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
 		    $t_rel_type = new ca_relationship_types($vs_prop);
 		    return $t_rel_type->get('type_code');
 		}
@@ -3121,14 +3207,17 @@ class SearchResult extends BaseObject {
 		$vs_field_name = $pa_path_components['subfield_name'] ? $pa_path_components['subfield_name'] : $pa_path_components['field_name'];
 		
 		$vs_table_name = $pa_path_components['table_name'];
+		
+		$convert_codes_to_value = caGetOption('convertCodesToValue', $pa_options, false);
+		
 		if (method_exists($pt_instance, 'setLabelTypeList')) {
 			$pt_instance->setLabelTypeList($this->opo_subject_instance->getAppConfig()->get(($pa_path_components['field_name'] == 'nonpreferred_labels') ? "{$vs_table_name}_nonpreferred_label_type_list" : "{$vs_table_name}_preferred_label_type_list"));
 		}
-		if (isset($pa_options['convertCodesToValue']) && $pa_options['convertCodesToValue'] && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
+		if ($convert_codes_to_value && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
 			$vs_prop = caGetListItemValueForID($vs_prop);
-		} elseif (isset($pa_options['convertCodesToValue']) && $pa_options['convertCodesToValue'] && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
+		} elseif($convert_codes_to_value && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
 			return $vs_prop;
-	    } elseif($vb_convert_codes_to_display_text && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
+	    } elseif($convert_codes_to_value && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
 		    $t_rel_type = new ca_relationship_types($vs_prop);
 		    return $t_rel_type->get('type_code');
 		}
@@ -3142,30 +3231,30 @@ class SearchResult extends BaseObject {
 		$vs_prop = $ps_prop;
 		
 		$vs_field_name = $pa_path_components['subfield_name'] ? $pa_path_components['subfield_name'] : $pa_path_components['field_name'];
-		$vb_convert_codes_to_display_text = ((isset($pa_options['convertCodesToDisplayText']) && $pa_options['convertCodesToDisplayText']) || ($pa_options['output'] == 'text'));
+		$convert_codes_to_display_text = (caGetOption('convertCodesToDisplayText', $pa_options, false) || ($pa_options['output'] == 'text'));
 		
 		$vs_table_name = $pa_path_components['table_name'];
 		if (method_exists($pt_instance, 'setLabelTypeList') && ($vs_label_list_name = $this->opo_subject_instance->getAppConfig()->get(($pa_path_components['field_name'] == 'nonpreferred_labels') ? "{$vs_table_name}_nonpreferred_label_type_list" : "{$vs_table_name}_preferred_label_type_list"))) {
 			$pt_instance->setLabelTypeList($vs_label_list_name);
 		}
 		
-		if ($vb_convert_codes_to_display_text && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
+		if ($convert_codes_to_display_text && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST_CODE"))) {
 			$vs_prop = SearchResult::$opt_list->getItemFromListForDisplayByItemID($vs_list_code, $vs_prop);
-		} elseif ($vb_convert_codes_to_display_text && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
+		} elseif ($convert_codes_to_display_text && ($vs_list_code = $pt_instance->getFieldInfo($vs_field_name,"LIST"))) {
             $vs_prop = SearchResult::$opt_list->getItemFromListForDisplayByItemValue($vs_list_code, $vs_prop);
-		} elseif ($vb_convert_codes_to_display_text && is_array($options = $pt_instance->getFieldInfo($vs_field_name,"OPTIONS")) && (($k = array_search($vs_prop, $options)) !== false)) {
+		} elseif ($convert_codes_to_display_text && is_array($options = $pt_instance->getFieldInfo($vs_field_name,"OPTIONS")) && (($k = array_search($vs_prop, $options)) !== false)) {
 			$vs_prop = $k;
-        } elseif ($vb_convert_codes_to_display_text && ($vs_field_name === 'locale_id') && ((int)$vs_prop > 0)) {
+        } elseif ($convert_codes_to_display_text && ($vs_field_name === 'locale_id') && ((int)$vs_prop > 0)) {
             $t_locale = new ca_locales($vs_prop);
             $vs_prop = $t_locale->getName();
-        } elseif ($vb_convert_codes_to_display_text && (is_array($va_list = $pt_instance->getFieldInfo($vs_field_name,"BOUNDS_CHOICE_LIST")))) {
+        } elseif ($convert_codes_to_display_text && (is_array($va_list = $pt_instance->getFieldInfo($vs_field_name,"BOUNDS_CHOICE_LIST")))) {
             foreach($va_list as $vs_option => $vs_value) {
                 if ($vs_value == $vs_prop) {
                     $vs_prop = $vs_option;
                     break;
                 }
             }
-		} elseif($vb_convert_codes_to_display_text && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
+		} elseif($convert_codes_to_display_text && method_exists($pt_instance, "isRelationship") && $pt_instance->isRelationship() && ($vs_field_name == 'type_id')) {
 		    $t_rel_type = new ca_relationship_types($vs_prop);
 		    return $t_rel_type->get('ca_relationship_types.preferred_labels');
 		}
@@ -3253,7 +3342,8 @@ class SearchResult extends BaseObject {
 		if (!($this->opa_field_media_info[$ps_field] ?? null)) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaInfo($ps_version, $ps_key, array_merge($pa_options, ['data' => array_shift($this->opa_field_media_info[$ps_field])]));
+		$d = is_array($this->opa_field_media_info[$ps_field]) ? array_shift($this->opa_field_media_info[$ps_field]) : null;
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaInfo($ps_version, $ps_key, array_merge($pa_options, ['data' => $d]));
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3264,7 +3354,8 @@ class SearchResult extends BaseObject {
 	    if (!($this->opa_field_media_info[$ps_field] ?? null)) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaPath($ps_version, array_merge($pa_options, ['data' => array_shift($this->opa_field_media_info[$ps_field])]));
+		$d = is_array($this->opa_field_media_info[$ps_field]) ? array_shift($this->opa_field_media_info[$ps_field]) : null;
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaPath($ps_version, array_merge($pa_options, ['data' => $d]));
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3294,7 +3385,8 @@ class SearchResult extends BaseObject {
 	    if (!$this->opa_field_media_info[$ps_field]) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaUrl($ps_version, array_merge($pa_options, ['data' => array_shift($this->opa_field_media_info[$ps_field])]));
+		$d = is_array($this->opa_field_media_info[$ps_field]) ? array_shift($this->opa_field_media_info[$ps_field]) : null;
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaUrl($ps_version, array_merge($pa_options, ['data' => $d]));
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3334,7 +3426,9 @@ class SearchResult extends BaseObject {
 		} else {
 		    $alt_text = null;
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaTag($ps_version, array_merge($pa_options, ['alt' => $alt_text, 'data' => reset($this->opa_field_media_info[$ps_field])]));
+		
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaTag($ps_version, array_merge($pa_options, ['alt' => $alt_text, 'data' => reset($d)]));
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3380,7 +3474,9 @@ class SearchResult extends BaseObject {
 	    if (!$this->opa_field_media_info[$ps_field]) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaVersions(['data' => reset($this->opa_field_media_info[$ps_field])]);
+		
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaVersions(['data' => reset($d)]);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3400,7 +3496,9 @@ class SearchResult extends BaseObject {
 		if (!$this->opa_field_media_info[$ps_field]) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->hasMedia(['data' => reset($this->opa_field_media_info[$ps_field])]);
+		
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->hasMedia(['data' => reset($d)]);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3411,7 +3509,8 @@ class SearchResult extends BaseObject {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
 
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaScale(['data' => reset($this->opa_field_media_info[$ps_field])]);	
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaScale(['data' => reset($d)]);	
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3421,7 +3520,9 @@ class SearchResult extends BaseObject {
 	    if (!$this->opa_field_media_info[$ps_field]) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->mediaIsMirrored($ps_version, ['data' => reset($this->opa_field_media_info[$ps_field])]);
+		
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->mediaIsMirrored($ps_version, ['data' => reset($d)]);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3431,7 +3532,9 @@ class SearchResult extends BaseObject {
 		if (!$this->opa_field_media_info[$ps_field]) {
 		    $this->opa_field_media_info[$ps_field] = $this->get($ps_field, array("unserialize" => true, 'returnWithStructure' => true));
 		}
-		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaMirrorStatus($ps_version, $ps_mirror, ['data' => reset($this->opa_field_media_info[$ps_field])]);
+		
+		$d = $this->opa_field_media_info[$ps_field] ?? [];
+		return $GLOBALS["_DbResult_mediainfocoder"]->getMediaMirrorStatus($ps_version, $ps_mirror, ['data' => reset($d)]);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3439,7 +3542,10 @@ class SearchResult extends BaseObject {
 	 */
 	function getFileInfo($ps_field) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFileInfo(array_shift($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))));
+		
+		$v = $this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true]);
+		$d = is_array($v) ? array_shift($v) : null;
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFileInfo($d);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3447,7 +3553,10 @@ class SearchResult extends BaseObject {
 	 */
 	function getFilePath($ps_field) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFilePath(array_shift($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))));
+		
+		$v = $this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true]);
+		$d = is_array($v) ? array_shift($v) : null;
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFilePath($d);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3455,7 +3564,10 @@ class SearchResult extends BaseObject {
 	 */
 	function getFileUrl($ps_field) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFileUrl(array_shift($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))));
+		
+		$v = $this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true]);
+		$d = is_array($v) ? array_shift($v) : null;
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFileUrl($d);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3463,7 +3575,10 @@ class SearchResult extends BaseObject {
 	 */
 	function hasFile($ps_field) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->hasFile(array_shift($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))));
+		
+		$v = $this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true]);
+		$d = is_array($v) ? array_shift($v) : null;
+		return $GLOBALS["_DbResult_fileinfocoder"]->hasFile($d);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3471,7 +3586,9 @@ class SearchResult extends BaseObject {
 	 */
 	function getFileConversions($ps_field) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversions(array($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))));
+		
+		$d = [$this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true])];
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversions($d);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3479,7 +3596,9 @@ class SearchResult extends BaseObject {
 	 */
 	function getFileConversionPath($ps_field, $ps_mimetype) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversionPath(array($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))), $ps_mimetype);
+		
+		$d = [$this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true])];
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversionPath($d, $ps_mimetype);
 	}
 	# ------------------------------------------------------------------
 	/**
@@ -3487,17 +3606,19 @@ class SearchResult extends BaseObject {
 	 */
 	function getFileConversionUrl($ps_field, $ps_mimetype) {
 		$va_field = $this->getFieldInfo($ps_field);
-		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversionUrl(array_shift($this->get($va_field["field"], array("unserialize" => true, 'returnWithStructure' => true))), $ps_mimetype);
+		
+		$v = $this->get($va_field["field"], ["unserialize" => true, 'returnWithStructure' => true]);
+		$d = is_array($v) ? array_shift($v) : null;
+		return $GLOBALS["_DbResult_fileinfocoder"]->getFileConversionUrl($d, $ps_mimetype);
 	}
 	# ------------------------------------------------------------------
 	/**
 	 * 
 	 */
 	function getDate($ps_field, $pa_options=null) {
-		
 		$va_field = $this->getFieldInfo($ps_field);
 		if (is_object($va_field["instance"])) {
-			if (!in_array($vn_field_type = $va_field["instance"]->getFieldInfo($va_field["field"], "FIELD_TYPE"), array(FT_DATE, FT_TIME, FT_DATETIME, FT_TIMESTAMP, FT_HISTORIC_DATETIME, FT_HISTORIC_DATERANGE, FT_DATERANGE))) {
+			if (!in_array($vn_field_type = $va_field["instance"]->getFieldInfo($va_field["field"], "FIELD_TYPE"), [FT_DATE, FT_TIME, FT_DATETIME, FT_TIMESTAMP, FT_HISTORIC_DATETIME, FT_HISTORIC_DATERANGE, FT_DATERANGE])) {
 				return false;
 			}
 			
@@ -3681,12 +3802,27 @@ class SearchResult extends BaseObject {
 		} elseif ($modifier == 'parent') {
 			array_splice($va_tmp, 1, 1);
 			$vs_hierarchical_modifier = 'parent';
+		} elseif ($modifier == 'parents') {
+			array_splice($va_tmp, 1, 1);
+			$vs_hierarchical_modifier = 'parents';
 		} elseif ($modifier == 'children') {
 			array_splice($va_tmp, 1, 1);
 			$vs_hierarchical_modifier = 'children';
+		} elseif ($modifier == 'descendants') {
+			array_splice($va_tmp, 1, 1);
+			$vs_hierarchical_modifier = 'descendants';
+		} elseif ($modifier == 'branch') {
+			array_splice($va_tmp, 1, 1);
+			$vs_hierarchical_modifier = 'branch';
 		} elseif ($modifier == 'siblings') {
 			array_splice($va_tmp, 1, 1);
 			$vs_hierarchical_modifier = 'siblings';
+		} elseif ($modifier == 'next') {
+			array_splice($va_tmp, 1, 1);
+			$vs_hierarchical_modifier = 'next';
+		} elseif ($modifier == 'previous') {
+			array_splice($va_tmp, 1, 1);
+			$vs_hierarchical_modifier = 'previous';
 		}
 		
 		switch(sizeof($va_tmp)) {
@@ -3839,7 +3975,7 @@ class SearchResult extends BaseObject {
 	 *
 	 */
 	static public function _isHierarchyModifier($pm_modifier) {
-		$va_hierarchy_modifiers = ['hierarchy', 'parent', 'children', 'siblings'];
+		$va_hierarchy_modifiers = ['hierarchy', 'parent', 'parents', 'children', 'descendants', 'branch', 'siblings', 'next', 'previous'];
 	
 		if (is_array($pm_modifier)) {
 			return (sizeof(array_intersect($va_hierarchy_modifiers, $pm_modifier)) > 0);
@@ -3898,9 +4034,44 @@ class SearchResult extends BaseObject {
 			return strlen($b) <=> strlen($a);
 		});
 		
-		$content = $g_highlight_cache[$content] = preg_replace("/(?<![A-Za-z0-9])(".join('|', $highlight_text).")/i", "<span class=\"highlightText\">\\1</span>", $content);
+		$content = $g_highlight_cache[$content] = preg_replace("/(?<= |^)(".preg_quote(join('|', $highlight_text), '/').")/i", "<span class=\"highlightText\">\\1</span>", $content);
 		
 		return $content;
+	}
+	# ------------------------------------------------------------------
+	/**
+	 * Return raw data from engine documenting how hits in the current result set were matched.
+	 * This data is generally not useful as-is for display or UI management, and must be resolved
+	 * into references to matched tables and fiedls using SearchEngine::resolveResultDescData()
+	 *
+	 * @return array()
+	 */
+	public function getRawResultDesc() : array {
+		return $this->opo_engine_result->getRawResultDesc() ?? [];
+	}
+	# ------------------------------------------------------
+	/**
+	 * Return array describing how search terms matched found records
+	 * To avoid a significant performance hit details are returned only for ids of hits passed in 
+	 * the $hits parameter rather than for the entire result set.
+	 *
+	 * @oaram array $hits List of ids to return matching data for
+	 * 
+	 * @return array
+	 */
+	public function getResultDesc(array $hits) : ?array {
+		$result_desc = [];
+		$result_desc_full = $this->opo_engine_result->getResultDesc();
+		
+		foreach($hits as $id) {
+			if(isset($result_desc_full[$id])) {
+				$result_desc[$id] = &$result_desc_full[$id];
+			}
+		}
+		
+		$o_search = new SearchEngine();
+		
+		return $o_search->resolveResultDescData($result_desc);
 	}
 	# ------------------------------------------------------------------
 }

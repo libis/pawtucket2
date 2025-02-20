@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2015-2016 Whirl-i-Gig
+ * Copyright 2015-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,12 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
-
 require_once( __CA_LIB_DIR__ . "/Plugins/IWLPlugInformationService.php" );
 require_once( __CA_LIB_DIR__ . "/Plugins/InformationService/BaseInformationServicePlugin.php" );
 
@@ -121,8 +115,6 @@ abstract class BaseGettyLODServicePlugin extends BaseInformationServicePlugin {
 
 		$va_result = json_decode( $vs_result, true );
 		if ( ! isset( $va_result['results']['bindings'] ) || ! is_array( $va_result['results']['bindings'] ) ) {
-			print var_dump( $va_result );
-
 			return null;
 		}
 
@@ -151,7 +143,7 @@ abstract class BaseGettyLODServicePlugin extends BaseInformationServicePlugin {
 		if ( ! $vs_display_url ) {
 			$vs_display_url = $ps_url;
 		}
-		$vs_display = '<div style="margin-top:10px; margin-bottom: 10px;"><a target="_blank" href="' . $vs_display_url
+		$vs_display = '<div style="margin-top:10px; margin-bottom: 10px;"><a target="_blank" rel="noopener noreferrer" href="' . $vs_display_url
 		              . '">' . $vs_display_url . '</a></div>';
 		foreach ( $va_service_conf['detail_view_info'] as $va_node ) {
 			if ( ! isset( $va_node['literal'] ) ) {
@@ -317,7 +309,7 @@ abstract class BaseGettyLODServicePlugin extends BaseInformationServicePlugin {
 
 				// make links click-able
 				if ( isURL( $vs_string_to_add ) ) {
-					$vs_string_to_add = "<a href='{$vs_string_to_add}' target='_blank'>{$vs_string_to_add}</a>";
+					$vs_string_to_add = "<a href=\"{$vs_string_to_add}\" target=\"_blank\" rel=\"noopener noreferrer\">{$vs_string_to_add}</a>";
 				}
 
 				$va_return[] = $vs_string_to_add;
@@ -497,5 +489,41 @@ abstract class BaseGettyLODServicePlugin extends BaseInformationServicePlugin {
 
 		return $vs_search;
 	}
-
+	# ------------------------------------------------
+	/** 
+	 * Add id field
+	 *
+	 * @param array $pa_settings element settings
+	 * @return array
+	 */
+	public function getAdditionalFields(array $pa_element_info) : array {
+		$id = '{fieldNamePrefix}'.$pa_element_info['element_id'].'_id_{n}';
+		$flds = [['name' => 'id', 'id' => $id, 'html' => caHTMLHiddenInput(
+				$id, 
+				['value' => '{{id}}'],
+				['width' => '150px']
+        )]];
+        $id = '{fieldNamePrefix}'.$pa_element_info['element_id'].'_uri_{n}';
+		$flds[] = ['name' => 'uri', 'id' => $id, 'html' => caHTMLHiddenInput(
+				$id, 
+				['value' => '{{uri}}'],
+				['width' => '150px']
+        )];
+        return $flds;
+	}
+	# ------------------------------------------------
+	/** 
+	 * Return ids
+	 *
+	 * @param array $pa_settings element settings
+	 * @return array
+	 */
+	public function getAdditionalFieldValues($attribute_value) : array {
+		$uri =  $attribute_value->getUri();
+		if(preg_match('!([\d]+)$!', $uri, $m)) {
+			return ['id' => $m[1], 'uri' => $uri];
+		}
+		return ['id' => '', 'uri' => ''];
+	}
+	# ------------------------------------------------
 }

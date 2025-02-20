@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2015 Whirl-i-Gig
+ * Copyright 2015-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,11 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
 BaseModel::$s_ca_models_definitions['ca_guids'] = array(
 	'NAME_SINGULAR' 	=> _t('globally unique identifier'),
 	'NAME_PLURAL' 		=> _t('globally unique identifiers'),
@@ -247,6 +242,36 @@ class ca_guids extends BaseModel {
 	}
 	# ------------------------------------------------------
 	/**
+	 * Get row id and table num for given GUID
+	 *
+	 * @param array $guids
+	 * @param array $options
+	 * @return array|null
+	 * 			keys are 'row_id' and 'table_num'
+	 */
+	public static function getInfoForGUIDs(?array $guids, ?array $options=null) : ?array {
+		if(!is_array($guids) || !sizeof($guids)) { return null; }
+		
+		/** @var Transaction $o_tx */
+		if($o_tx = caGetOption('transaction', $options, null)) {
+			$o_db = $o_tx->getDb();
+		} else {
+			$o_db = new Db();
+		}
+
+		$qr_guid = $o_db->query('
+			SELECT table_num, row_id FROM ca_guids WHERE guid IN (?)
+		', [$guids]);
+
+		$ret = [];
+		while($qr_guid->nextRow()) {
+			$ret[] = $qr_guid->getRow();
+		}
+
+		return $ret;
+	}
+	# ------------------------------------------------------
+	/**
 	 * Return access value for row identified by GUID
 	 *
 	 * @param string $ps_guid
@@ -326,7 +351,7 @@ class ca_guids extends BaseModel {
             // TODO: make configurable
             if(in_array(Datamodel::getTableName($vn_table_num), ['ca_object_lots', 'ca_object_lot_labels', 'ca_lists', 'ca_list_items', 'ca_list_labels', 'ca_list_item_labels']))  { return true; }
             
-            if (!Datamodel::getFieldInfo($vn_table_num, 'access')) { return false; }        // TODO: support attributes on non-acess control tables (eg. config tables; interstitial attributes on relationships)
+            if (!Datamodel::getFieldInfo($vn_table_num, 'access')) { return false; }        // TODO: support attributes on non-access control tables (eg. config tables; interstitial attributes on relationships)
             $qr_guid = $o_db->query('
                 SELECT access FROM '.Datamodel::getTableName($vn_table_num)." WHERE ".Datamodel::primaryKey($vn_table_num).' = ?
             '.(Datamodel::getFieldInfo($vn_table_num, 'deleted') ? ' AND deleted = 0' : ''), [$vn_row_id]);
@@ -391,6 +416,58 @@ class ca_guids extends BaseModel {
 		if(!$qr_record->nextRow()) { return false; }
 
 		return (bool) $qr_record->get('deleted');
+	}
+	# ------------------------------------------------------
+	/**
+	 * Return GUIDs for table
+	 *
+	 * @param string $table
+	 * @param array $options Options include:
+	 *		limit = Maximum number of GUIDs to return. [Default is 1000]
+	 * @return array List of guids
+	 */
+	public static function guidsForTable($table, ?array $options=null) : array {
+		if(!($table_num = Datamodel::getTableNum($table))) { return []; }
+		if($o_tx = caGetOption('transaction', $options, null)) {
+			$o_db = $o_tx->getDb();
+		} else {
+			$o_db = new Db();
+		}
+		$limit = caGetOption('limit', $options, 1000);
+		$qr = $o_db->query(
+			"SELECT * FROM ca_guids WHERE table_num = ? LIMIT {$limit}", [$table_num]
+		);
+		$guids = $qr->getAllFieldValues('guid');
+		
+		return is_array($guids) ? $guids : [];
+	}
+	# ------------------------------------------------------
+	/**
+	 * Remove GUIDs for table that do not reference a valid row. Note rows marked as deleted
+	 * are considered valid.
+	 *
+	 * @param string $table
+	 * @param array $options No options are available.
+	 * @return bool
+	 */
+	public static function removeUnusedGUIDs($table, ?array $options=null) : bool {
+		if(!($table_num = Datamodel::getTableNum($table))) { return false; }
+		if($o_tx = caGetOption('transaction', $options, null)) {
+			$o_db = $o_tx->getDb();
+		} else {
+			$o_db = new Db();
+		}
+		$pk = Datamodel::primaryKey($table);
+		
+		try {
+			$qr = $o_db->query(
+				"DELETE FROM ca_guids WHERE table_num = ? AND row_id NOT IN (SELECT {$pk} FROM {$table})", [$table_num]
+			);
+		} catch (DatabaseException $e) {
+			return false;
+		}
+		
+		return true;
 	}
 	# ------------------------------------------------------
 }

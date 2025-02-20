@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2015-2020 Whirl-i-Gig
+ * Copyright 2015-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,12 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
-  /**
-    *
-    */ 
-    
-    
 require_once(__CA_LIB_DIR__."/Plugins/IWLPlugInformationService.php");
 require_once(__CA_LIB_DIR__."/Plugins/InformationService/BaseInformationServicePlugin.php");
 
@@ -98,9 +92,20 @@ class WLPlugInformationServiceWikipedia Extends BaseInformationServicePlugin Imp
 			'gsrsearch' => urlencode($ps_search),
 			'gsrlimit' => 50,	 		// max allowed by mediawiki
 			'gsrwhat' => 'nearmatch',	// search for near matches in titles
+			'prop' => 'info|pageprops',
+			'inprop' => 'url',
+			'format' => 'json',
+			'redirects' => 1
+		);
+		
+		$va_disambiguation_params = array(
+			'action' => 'query',
+			'generator' => 'links',
+			'gpllimit' => 50,	 		// max allowed by mediawiki
 			'prop' => 'info',
 			'inprop' => 'url',
-			'format' => 'json'
+			'format' => 'json',
+			'redirects' => 1
 		);
 
 		$vs_content = caQueryExternalWebservice(
@@ -115,7 +120,23 @@ class WLPlugInformationServiceWikipedia Extends BaseInformationServicePlugin Imp
 		$va_return = array();
 
 		foreach($va_results as $va_result) {
+			if(isset($va_result['pageprops']['disambiguation'])) { 
+				// Expand disambiguation pages into possible links
+				$vs_content = caQueryExternalWebservice(
+					$vs_url = 'https://'.$vs_lang.'.wikipedia.org/w/api.php?' . caConcatGetParams(array_merge($va_disambiguation_params, ['titles' => $va_result['title']]))
+				);
 
+				if(is_array($va_content = @json_decode($vs_content, true)) && is_array($va_content['query']['pages'])) {
+					foreach($va_content['query']['pages'] as $va_dresult) {
+						$va_return['results'][] = array(
+							'label' => $va_dresult['title'] . ' ['.$va_dresult['fullurl'].']',
+							'url' => $va_dresult['fullurl'],
+							'idno' => $va_dresult['pageid'],
+						);
+					}
+				}
+				continue; 
+			}
 			$va_return['results'][] = array(
 				'label' => $va_result['title'] . ' ['.$va_result['fullurl'].']',
 				'url' => $va_result['fullurl'],
@@ -134,7 +155,7 @@ class WLPlugInformationServiceWikipedia Extends BaseInformationServicePlugin Imp
 	 * @return array An array of data from the data server defining the item.
 	 */
 	public function getExtendedInformation($pa_settings, $ps_url) {
-		$vs_display = "<p><a href='$ps_url' target='_blank'>$ps_url</a></p>";
+		$vs_display = "<p><a href='$ps_url' target='_blank' rel='noopener noreferrer'>$ps_url</a></p>";
 
 		$va_info = $this->getExtraInfo($pa_settings, $ps_url);
 
@@ -150,7 +171,7 @@ class WLPlugInformationServiceWikipedia Extends BaseInformationServicePlugin Imp
 		// readable version of get parameters
 		$va_get_params = array(
 			'action' => 'query',
-			'titles' => self::getPageTitleFromURI($ps_url),
+			'titles' => urlencode(self::getPageTitleFromURI($ps_url)),
 			'prop' => 'pageimages|info|extracts',
 			'inprop' => 'url',
 			'piprop' => 'name|thumbnail',

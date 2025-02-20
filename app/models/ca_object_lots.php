@@ -29,17 +29,11 @@
  * 
  * ----------------------------------------------------------------------
  */
- 
- /**
-   *
-   */
-
 require_once(__CA_LIB_DIR__."/IBundleProvider.php");
 require_once(__CA_LIB_DIR__."/RepresentableBaseModel.php");
 require_once(__CA_LIB_DIR__."/HistoryTrackingCurrentValueTrait.php");
 require_once(__CA_LIB_DIR__."/DeaccessionTrait.php");
 require_once(__CA_MODELS_DIR__."/ca_objects.php");
-
 
 BaseModel::$s_ca_models_definitions['ca_object_lots'] = array(
  	'NAME_SINGULAR' 	=> _t('object lot'),
@@ -568,6 +562,7 @@ class ca_object_lots extends RepresentableBaseModel {
  	 * @return array List of objects related to the object lot or null if $pn_lot_id is not set and there is no currently loaded lot
  	 */
  	 public function getObjects($pn_lot_id=null, $pa_options=null) {
+ 	 	if(!is_array($pa_options)) { $pa_options = []; }
  	 	$vn_lot_id = $this->getPrimaryKey();
  	 	if ($pn_lot_id && ($pn_lot_id != $vn_lot_id)) {
  	 		$vn_lot_id = $pn_lot_id;
@@ -622,7 +617,7 @@ class ca_object_lots extends RepresentableBaseModel {
  	/**
  	 * 
  	 * @param array $pa_options Options include:
- 	 *      reindex = force any idno that is out of the current 1-based index to be renumbered. Eg. if there are 12 objects in the lot, any one numbers > 12 will be renumbered to be between 1 and 12. [Default is false]
+ 	 *      reindex = force any idno that is out of the current 1-based index to be renumbered. Eg. if there are 12 objects in the lot, any one numbered > 12 will be renumbered to be between 1 and 12. [Default is false]
  	 * @return array List of objects with non-conforming idnos, or false if there are no non-conforming objects
  	 */
  	 public function getObjectsWithNonConformingIdnos($pa_options=null) {
@@ -679,7 +674,6 @@ class ca_object_lots extends RepresentableBaseModel {
 			$va_objects = $this->getObjects();
 			$vs_lot_num = $this->get('idno_stub');
 			
-			
 			$t_object = new ca_objects();
 			
 			$vb_web_set_transaction = false;
@@ -709,40 +703,39 @@ class ca_object_lots extends RepresentableBaseModel {
 					if ($po_application_plugin_manager) {
 						$po_application_plugin_manager->hookBeforeSaveItem(array('id' => $vn_object_id, 'table_num' => $t_object->tableNum(), 'table_name' => $t_object->tableName(), 'instance' => $t_object));
 					}
-					$t_object->setMode(ACCESS_WRITE);
 					
-					$va_tmp = $va_lot_num;
+					$tmp = $va_lot_num;
 					
 					$cur_num_tmp = explode($vs_separator, $t_object->get('idno'));
 			        $n = (int)$cur_num_tmp[sizeof($va_lot_num)];
 			        
 			        switch($va_object_info['_reason']) {
 			            case 'out-of-lot':
-			                $va_tmp[] = $n;
+			                $tmp[] = $n;
 			                break;
 			            case 'dupe':
 			                $maxnum++;
-			                $va_tmp[] = $maxnum;
+			                $tmp[] = $maxnum;
 			                break;
 			            case 'out-of-range':
                             while(isset($nums[$i])) {
                                 $i++;
                             }
-                            $va_tmp[] = $i;
+                            $tmp[] = $i;
                             $nums[$i] = true;
 			                break;
 			        }
 			        
-			        $tail = array_slice($cur_num_tmp, sizeof($va_tmp));
-			        $va_tmp += $tail;
+			        $tail = array_slice($cur_num_tmp, sizeof($tmp));
+			        $tmp += $tail;
 			        
-			       // print join($vs_separator, $cur_num_tmp)." => ".join($vs_separator, $va_tmp)."<br>\n";
+			       // print join($vs_separator, $cur_num_tmp)." => ".join($vs_separator, $tmp)."<br>\n";
 					
-					$t_object->setIdnoWithTemplate(join($vs_separator, $va_tmp));
+					$t_object->setIdnoWithTemplate(join($vs_separator, $tmp));
 				
 					$t_object->update();
 					if ($t_object->numErrors()) {
-						$t->rollback();
+						$t_object->rollback();
 						$this->errors = $t_object->errors;
 						return false;
 					}

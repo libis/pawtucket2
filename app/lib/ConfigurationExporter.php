@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2012-2023 Whirl-i-Gig
+ * Copyright 2012-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,24 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
-require_once(__CA_LIB_DIR__."/Configuration.php");
-require_once(__CA_MODELS_DIR__.'/ca_bundle_displays.php');
-require_once(__CA_MODELS_DIR__."/ca_lists.php");
-require_once(__CA_MODELS_DIR__."/ca_metadata_elements.php");
-require_once(__CA_MODELS_DIR__."/ca_locales.php");
-require_once(__CA_MODELS_DIR__."/ca_editor_ui_bundle_placements.php");
-require_once(__CA_MODELS_DIR__."/ca_user_roles.php");
-require_once(__CA_MODELS_DIR__."/ca_user_groups.php");
-require_once(__CA_MODELS_DIR__."/ca_search_forms.php");
-require_once(__CA_MODELS_DIR__."/ca_search_form_placements.php");
-require_once(__CA_MODELS_DIR__."/ca_editor_ui_screens.php");
-require_once(__CA_MODELS_DIR__.'/ca_metadata_dictionary_entries.php');
-
 
 final class ConfigurationExporter {
 	# -------------------------------------------------------
@@ -321,6 +303,7 @@ final class ConfigurationExporter {
 			$vo_item->setAttribute("idno", $vs_idno);
 			$vo_item->setAttribute("enabled", $qr_items->get("is_enabled"));
 			$vo_item->setAttribute("default", $qr_items->get("is_default"));
+			$vo_item->setAttribute("access", $qr_items->get("access"));
 								
 			if ($vs_color = $qr_items->get('color')) {
 				$vo_item->setAttribute("color", $vs_color);
@@ -656,6 +639,32 @@ final class ConfigurationExporter {
 			$vo_dict->appendChild($vo_entry);
 			$vo_entry->setAttribute('bundle', $t_entry->get('bundle_name'));
 			$vo_entry->setAttribute('table', Datamodel::getTableName($t_entry->get('table_num')));
+			
+			$label_count = 0;
+			$vo_labels = $this->opo_dom->createElement("labels");
+			if(is_array($labels = $t_entry->getLabels(null, __CA_LABEL_TYPE_ANY__)) && sizeof($labels)) {
+				foreach($labels as $entry_id => $label_by_locale) {
+					foreach($label_by_locale as $locale_id => $label_list) {
+						foreach($label_list as $label) {
+							$vo_label = $this->opo_dom->createElement("label");
+							$vo_label->setAttribute('locale', $this->opt_locale->localeIDToCode($locale_id));
+							$vo_name = $this->opo_dom->createElement("name", $label['name'] ?? null);
+							$vo_label->appendChild($vo_name);
+							$vo_labels->appendChild($vo_label);
+							$label_count++;
+						}
+					}
+				}
+			}
+				
+			if($label_count === 0) {
+				$vo_label = $this->opo_dom->createElement("label");
+				$vo_label->setAttribute('locale', defined('__CA_DEFAULT_LOCALE__') ? __CA_DEFAULT_LOCALE__ : 'en_US');
+				$vo_name = $this->opo_dom->createElement("name", '['.caGetBlankLabelText('ca_metadata_dictionary_entries').']');
+				$vo_label->appendChild($vo_name);
+				$vo_labels->appendChild($vo_label);
+			} 
+			$vo_entry->appendChild($vo_labels);
 
 			if(is_array($t_entry->getSettings())) {
 				$va_settings = array();
@@ -1428,6 +1437,18 @@ final class ConfigurationExporter {
 			}
 
 			$vo_roles->appendChild($vo_role);
+			
+	
+			if($this->opn_modified_after && is_array($va_deleted = $this->getDeletedItemsFromChangeLogByIdno(Datamodel::getTableNum($t_role->tableNum()), 'code'))) {
+				foreach($va_deleted as $vs_deleted_idno) {
+					$vo_role = $this->opo_dom->createElement("role");
+					$vo_role->setAttribute("code", $vs_deleted_idno);
+					$vo_role->setAttribute("deleted", 1);
+					$vo_roles->appendChild($vo_role);
+
+					$this->printStatus(_t("Exporting deleted role %1", $vs_deleted_idno));
+				}
+			}
 		}
 
 		return $vo_roles;
@@ -1488,17 +1509,6 @@ final class ConfigurationExporter {
 		$t_user = new ca_users();
 
 		$vo_logins = $this->opo_dom->createElement("logins");
-
-		if($this->opn_modified_after && is_array($va_deleted = $this->getDeletedItemsFromChangeLogByIdno($t_role->tableNum(), 'code'))) {
-			foreach($va_deleted as $vs_deleted_idno) {
-				$vo_role = $this->opo_dom->createElement("role");
-				$vo_roles->appendChild($vo_role);
-				$vo_role->setAttribute("code", $vs_deleted_idno);
-				$vo_role->setAttribute("deleted", 1);
-
-				$this->printStatus(_t("Exporting deleted role %1", $vs_deleted_idno));
-			}
-		}
 
 		$qr_users = $this->opo_db->query("SELECT * FROM ca_users WHERE active = 1");
 

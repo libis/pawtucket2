@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2013-2022 Whirl-i-Gig
+ * Copyright 2013-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -92,7 +92,7 @@
 			$t_instance = Datamodel::getInstance($vs_class, true);
  			
  			// Now that table name is known we can set standard view vars
- 			parent::setTableSpecificViewVars();
+ 			parent::setTableSpecificViewVars($va_browse_info);
  			
  			$va_types = caGetOption('restrictToTypes', $va_browse_info, array(), array('castTo' => 'array'));
  			$vb_omit_child_records = caGetOption('omitChildRecords', $va_browse_info, [], array('castTo' => 'bool'));
@@ -100,7 +100,7 @@
  			
 			$vb_is_nav = (bool)$this->request->getParameter('isNav', pString, ['forcePurify' => true]);
 			
-			$vs_type_key = caMakeCacheKeyFromOptions($va_types);
+			$vs_type_key = caMakeCacheKeyFromOptions($va_types, $this->request->isLoggedIn() ? '1' : '0');
 			if(ExternalCache::contains("{$vs_class}totalRecordsAvailable{$vs_type_key}")) {
 				$this->view->setVar('totalRecordsAvailable', ExternalCache::fetch("{$vs_class}totalRecordsAvailable{$vs_type_key}"));
 			} else {
@@ -199,24 +199,27 @@
 			$va_base_criteria = caGetOption('baseCriteria', $va_browse_info, null);
 			$show_base_criteria = caGetOption('showBaseCriteria', $va_browse_info, false);
 			
-			if (($vs_facets = $this->request->getParameter('facets', pString, ['forcePurify' => true])) && is_array($va_facets = explode(';', $vs_facets)) && sizeof($va_facets)) {
-			    foreach ($va_facets as $vs_facet_spec) {
-			        if (!sizeof($va_tmp = explode(':', $vs_facet_spec))) { continue; }
-			        $vs_facet = array_shift($va_tmp);
-			        $o_browse->addCriteria($vs_facet, preg_split("![\|,]+!", join(":", $va_tmp))); 
-			    }
+			if (is_array($va_base_criteria) && !$vs_remove_criterion) {
+				foreach($va_base_criteria as $vs_facet => $vs_value) {
+					$o_browse->addCriteria($vs_facet, $vs_value);
+				}
+			} 
 			
+			if (($vs_facets = $this->request->getParameter('facets', pString, ['forcePurify' => true])) && is_array($va_facets = explode(';', $vs_facets)) && sizeof($va_facets)) {
+				foreach ($va_facets as $vs_facet_spec) {
+					if (!sizeof($va_tmp = explode(':', $vs_facet_spec))) { continue; }
+					$vs_facet = array_shift($va_tmp);
+					$o_browse->addCriteria($vs_facet, preg_split("![\|,]+!", join(":", array_map(function($v) { 
+						return urldecode($v);
+					}, $va_tmp)))); 
+				}
+		
 			} elseif (($vs_facet = $this->request->getParameter('facet', pString, ['forcePurify' => true])) && is_array($p = array_filter(explode('|', trim($this->request->getParameter('id', pString, ['forcePurify' => true]))), function($v) { return strlen($v); })) && sizeof($p)) {
+				$p = array_map('urldecode', $p);
 				$o_browse->addCriteria($vs_facet, $p);
 			} else { 
 				if (($o_browse->numCriteria() == 0)) {
-					if (is_array($va_base_criteria) && !$vs_remove_criterion) {
-						foreach($va_base_criteria as $vs_facet => $vs_value) {
-							$o_browse->addCriteria($vs_facet, $vs_value);
-						}
-					} else {
-						$o_browse->addCriteria("_search", array("*"));
-					}
+					$o_browse->addCriteria("_search", array("*"));
 				}
 			}
 			
@@ -270,6 +273,13 @@
 			if (isset($va_criteria['_search']) && (isset($va_criteria['_search']['*']))) {
 				unset($va_criteria['_search']);
 			} 
+			
+			$x = [];
+			foreach($va_criteria as $facet => $values) {
+				$x[] = $facet.":".join("|", array_keys($values));
+			}
+			
+			$this->view->setVar('share_url', caNavUrl($this->request, '*', '*', '*', ['facets' => join(";", $x)], ['absolute' => true]));
 
  			$vb_expand_results_hierarchically = caGetOption('expandResultsHierarchically', $va_browse_info, array(), array('castTo' => 'bool'));
  			
@@ -301,8 +311,7 @@
 			$this->view->setVar('facets', $va_facets);
 		
 			$this->view->setVar('key', $vs_key = $o_browse->getBrowseID());
-			
-			Session::setVar($ps_function.'_last_browse_id', $vs_key);
+			if(!$this->request->isAjax()) { Session::setVar($ps_function.'_last_browse_id', $vs_key); }
 			
 			
 			// remove base criteria from display list
@@ -403,26 +412,32 @@
  			
  			// map
 			if ($ps_view === 'map') {
-				$va_opts = array(
+				$va_opts = [
 				    'renderLabelAsLink' => false, 
 				    'request' => $this->request, 
 				    'color' => '#cc0000', 
 				    'labelTemplate' => caGetOption('labelTemplate', $va_view_info['display'], null),
 				    'contentTemplate' => caGetOption('contentTemplate', $va_view_info['display'], null),
-				    'ajaxContentUrl' => (caGetOption('title_template', $va_view_info['display'], null) || caGetOption('description_template', $va_view_info['display'], null)) ? caNavUrl($this->request, '*', '*', 'AjaxGetMapItem', array('browse' => $ps_function,'view' => $ps_view)) : null
-				);
+				    'ajaxContentUrl' => caGetOption('ajaxContentUrl', $va_view_info['display'], null),
+				    'excludeRelationshipTypes' => caGetOption('excludeRelationshipTypes', $va_view_info['display'], null)
+				];
+				if(!$va_opts['ajaxContentUrl']) {
+					$va_opts['ajaxContentUrl'] = (caGetOption('title_template', $va_view_info['display'], null) || caGetOption('description_template', $va_view_info['display'], null))
+						? 
+						caNavUrl($this->request, '*', '*', 'AjaxGetMapItem', array('browse' => $ps_function,'view' => $ps_view)) : null;
+				}
 				
 				$o_map = new GeographicMap(caGetOption("width", $va_view_info, "100%"), caGetOption("height", $va_view_info, "600px"));
 				$qr_res->seek(0);
 				$o_map->mapFrom($qr_res, $va_view_info['data'], $va_opts);
-				$this->view->setVar('map', $o_map->render('HTML', array('labelTemplate' => caGetOption('labelTemplate', $va_view_info['display'], null), 'circle' => 0, 'minZoomLevel' => caGetOption("minZoomLevel", $va_view_info, 2), 'maxZoomLevel' => caGetOption("maxZoomLevel", $va_view_info, 12), 'noWrap' => caGetOption("noWrap", $va_view_info, null), 'request' => $this->request)));
+				$this->view->setVar('map', $o_map->render('HTML', array('labelTemplate' => caGetOption('labelTemplate', $va_view_info['display'], null), 'circle' => 0, 'cluster' => caGetOption('cluster', $va_view_info, false, ['castTo' => 'bool']), 'minZoomLevel' => caGetOption("minZoomLevel", $va_view_info, 2), 'maxZoomLevel' => caGetOption("maxZoomLevel", $va_view_info, 12), 'noWrap' => caGetOption("noWrap", $va_view_info, null), 'request' => $this->request)));
 			}
  			
  			switch($ps_view) {
  				case 'xlsx':
  				case 'pptx':
  				case 'pdf':
- 					$this->_genExport($qr_res, $this->request->getParameter("export_format", pString, ['forcePurify' => true]), caGenerateDownloadFileName(caGetOption('pdfExportTitle', $va_browse_info, $ps_search_expression)), $this->getCriteriaForDisplay($o_browse));
+ 					$this->_genExport($qr_res, $this->request->getParameter("export_format", pString, ['forcePurify' => true]), caGenerateDownloadFileName(caGetOption('pdfExportTitle', $va_browse_info, $ps_search_expression ?? 'browse')), $this->getCriteriaForDisplay($o_browse));
  					break;
  				case 'timelineData':
  					$this->view->setVar('view', 'timeline');

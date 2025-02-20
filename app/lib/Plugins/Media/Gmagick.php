@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2012-2022 Whirl-i-Gig
+ * Copyright 2012-2023 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,15 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
- 
- /**
-  *
-  */
- 
-/**
- * Plugin for processing images using GraphicsMagick via the Gmagick PECL extension
-*/
-
 include_once(__CA_LIB_DIR__."/Plugins/Media/BaseMediaPlugin.php");
 include_once(__CA_LIB_DIR__."/Plugins/IWLPlugMedia.php");
 include_once(__CA_APP_DIR__."/helpers/mediaPluginHelpers.php");
@@ -58,6 +49,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 	
 	var $opo_config;
 	var $tmpfiles_to_delete = [];
+	protected $imagemagick_path;
 	
 	var $info = array(
 		'IMPORT' => array(
@@ -254,7 +246,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 	 */
 	public function register() {
 		$this->opo_config = Configuration::load();
-		$this->caMediaPluginGraphicsMagickInstalled = caMediaPluginGraphicsMagickInstalled('');
 		$this->ops_dcraw_path = caMediaPluginDcrawInstalled();
 		$this->imagemagick_path = caMediaPluginImageMagickInstalled();
 		
@@ -320,7 +311,8 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			$tp = new TilepicParser();
 			if ($tp->isTilepic($filepath)) {
 				return 'image/tilepic';
-			} elseif ($this->imagemagick_path && (preg_match('!\.heic$!i', $filepath) || preg_match('!\.psd$!i', $filepath))) {	// Is it HEIC?
+
+			} elseif ($this->imagemagick_path && (preg_match('!\.(heic|psd|jpg|jpeg)$!i', $filepath))) {	// Is it HEIC?
 				caExec($this->imagemagick_path." ".caEscapeShellArg($filepath)." 2> /dev/null", $output, $return);
 				if(is_array($output) && preg_match("!(HEIC|PSD) [\d]+x[\d]+!", $output[0], $m)) {
 					$this->opa_heic_list[$filepath] = true;
@@ -889,29 +881,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 				return false;
 			} 
 			
-			// If the EXIF Orientation tag is set we must remove it from derivatives, as 
-			// they're written out rotated into the correct orientation. The continued presence of
-			// the tag will result in consumers of the image rotating it again into an 
-			// incorrect orientation (very confusing...). Gmagick provides for either passing
-			// through all metadata or stripping all metadata, including color profiles. There's
-			// no way to selectively remove data, or even just preserve color profiles. Thus,
-			// we are left with two options:
-			//
-			// 1. Kill all metadata using Gmagick::stripImage(). This will address orientation issues
-			//    but also remove color profiles. Many users won't notice the difference. Those who do
-			//    will be very unhappy.
-			//
-			// 2. Use Exiftool to rewrite the image without the EXIF Orientation tag. This works 
-			//    well, but is relatively slow and requires ExifTool to be installed, which is often 
-			//    not the case.
-			//
-			// So... what we do is use stripImage() when EXIF orientation is set and ExifTool is not
-			// installed. stripImage() must be called before the image is written. If ExifTool is 
-			// present and orientation is set then we call it later, after the image is written.
-			$use_exif_tool_to_strip = (bool)$this->opo_config->get('dont_use_exiftool_to_strip_exif_orientation_tags');
-			if (($this->properties['exif_orientation'] > 0) && (!caExifToolInstalled() || $use_exif_tool_to_strip)) {
-				$this->handle->stripImage();
-			}
 			$this->handle->setimageformat($this->magick_names[$mimetype]);
 			# set quality
 			if (($this->properties["quality"] ?? null) && ($this->properties["mimetype"] != "image/tiff")){ 
@@ -979,14 +948,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 					$this->postError(1610, _t("Error writing file"), "WLPlugGmagick->write()");
 					return false;
 				} 
-				
-				// Call ExifTool to strip EXIF orientation tag from written file (see above for 
-				// a discussion of the problem). caExtractRemoveOrientationTagWithExifTool() tests
-				// for presence of ExifTool so we don't bother here. We don't care if it succeeds of
-				// not in any event as there's nothing else we can do.
-				if (($this->properties['exif_orientation'] > 0) && !$use_exif_tool_to_strip) {
-					caExtractRemoveOrientationTagWithExifTool($filepath.".".$ext);
-				}
 			} catch (Exception $e) {
 				$this->postError(1610, _t("Error writing file: %1", $e->getMessage()), "WLPlugGmagick->write()");
 				return false;
@@ -1019,7 +980,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 		@unlink($output_file_prefix);
 		
 		$files = [];
-		$i = 0;
+		$i = 1;
 		
 		$dont_import_pages_for_tiffs = $this->opo_config->get("dont_import_additional_pages_for_tiffs");
 		
@@ -1030,11 +991,10 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			$num_previews++;
 			$i++;
 		} while($this->handle->hasnextimage());
-		
 		$this->handle->setimageindex(0);
 		
 		if ($num_previews > 1) {
-			$i = 0;
+			$i = 1;
 			do {
 				if ($i > 1) { $this->handle->nextImage(); }
 			
@@ -1176,9 +1136,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			case Gmagick::COLORSPACE_SRGB:
 				$vs_colorspace = 'SRGB';
 				break;
-			/*case Gmagick::COLORSPACE_HSB:
-				$vs_colorspace = 'HSB';
-				break;*/
 			case Gmagick::COLORSPACE_HSL:
 				$vs_colorspace = 'HSL';
 				break;
@@ -1190,9 +1147,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 				break;
 			case Gmagick::COLORSPACE_REC709LUMA:
 				$vs_colorspace = 'REC709LUMA';
-				break;
-			case Gmagick::COLORSPACE_LOG:
-				$vs_colorspace = 'LOG';
 				break;
 			default:
 				$vs_colorspace = 'UNKNOWN';
@@ -1520,7 +1474,15 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			if($rotation) { 
 				$this->handle->rotateImage('#ffffff', $rotation);
 			}
-						
+			
+			// remove all metadata - especially orientation tag
+			$this->handle = $this->handle->stripImage(); 
+			
+			// restore color profile if present, otherwise image will probabl look awful
+			if($profile = $this->metadata['EXIF']['IFD0']['ICC_Profile'] ?? null) {
+				$this->handle->profileimage('icc', $profile);
+			}
+
 			if (($rotation) && (abs($rotation) === 90)) {
 				$w = $this->properties["width"]; $h = $this->properties["height"];
 				$this->properties["width"] = $h;

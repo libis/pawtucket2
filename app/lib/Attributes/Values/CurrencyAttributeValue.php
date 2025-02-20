@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2009-2022 Whirl-i-Gig
+ * Copyright 2009-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,10 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
- 
- /**
-  *
-  */ 	
 define("__CA_ATTRIBUTE_VALUE_CURRENCY__", 6);
 	
 require_once(__CA_LIB_DIR__.'/Attributes/Values/IAttributeValue.php');
@@ -272,7 +268,7 @@ class CurrencyAttributeValue extends AttributeValue implements IAttributeValue {
 			$vs_currency_specifier = $va_parsed_value['currency'];
 			$vs_decimal_value = $va_parsed_value['value'];
 		} else {
-			$this->postError(1970, _t('%1 is not a valid currency value; be sure to include a currency symbol', $pa_element_info['displayLabel']), 'CurrencyAttributeValue->parseValue()');
+			$this->postError(1970, _t('%1 is not a valid currency value; be sure to include a currency symbol', $pa_element_info['displayLabel'] ?? null), 'CurrencyAttributeValue->parseValue()');
 			return false;
 		}
 

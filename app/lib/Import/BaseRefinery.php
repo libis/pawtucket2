@@ -129,7 +129,6 @@ abstract class BaseRefinery {
 	public function supportsRelationships() {
 		return $this->opb_supports_relationships;
 	}
-
 	# -------------------------------------------------------
 	/**
 	 * Process template expression, replacing "^" prefixed placeholders with data values.
@@ -151,13 +150,14 @@ abstract class BaseRefinery {
 	 * @param array $options An array of options. Options include:
 	 *		reader = An instance of BaseDataReader. Will be used to pull values for placeholders that are not defined in $source_data. This is useful for formats like XML where placeholders may be arbitrary XPath expressions that must be executed rather than parsed. [Default is null]
 	 *		returnAsString = Return array of repeating values as string using delimiter. Has effect only is $index parameter is set to null. [Default is false]
-	 *		delimiter = Delimiter to join array values with when returnAsString option is set; or the delimiter to use when breaking apart a value for return via the returnDelimitedValueAt option. [Default is ";"]
+	 *		delimiter = Delimiter to join array values with when returnAsString option is set; or the delimiter to use when breaking apart a value for return via the returnDelimitedValueAt option. Multiple delimiters may be passed in an array. When an array is used the first delimiter will be used to join values for return as a string. [Default is ";"]
 	 *		returnDelimitedValueAt = Return a specific part of a value delimited by the "delimiter" option when $index is set to a non-null value. The option value is a zero-based index. [Default is null – return entire value]
 	 *		applyImportItemSettings = Apply mapping options such as applyRegularExpressions to value. [Default is true]
+	 *		ignoreIndexForNonRepeatingValues = If value is non-repeating (has only one value) then assume it is constant across all value indices (Eg. return the single value regardless of specified index) [Default is false]
 	 *
 	 * @return mixed An array or string
 	 */
-	public static function parsePlaceholder(string $placeholder, array $source_data, array $item, ?int $value_index=null, ?array $options=null) {
+	public static function parsePlaceholder(?string $placeholder, array $source_data, array $item, ?int $value_index=null, ?array $options=null) {
 		$reader = caGetOption('reader', $options, null);
 		$return_as_string = caGetOption("returnAsString", $options, false);
 		$get_at_index = caGetOption('returnDelimitedValueAt', $options, null);
@@ -166,16 +166,20 @@ abstract class BaseRefinery {
 		$placeholder = trim($placeholder);
 		$key = substr($placeholder, 1);
 		
-		$delimiters = caGetOption("delimiter", $options, null);
-		if (is_array($delimiters)) { $delimiter = $delimiters[0]; } else { $delimiter = $delimiters; $delimiters = [$delimiters]; }
-		$delimiter = stripslashes($delimiter);
+		$delimiters = caGetOption("delimiter", $options, [';']);
+		if(!is_array($delimiters)) { $delimiters = [$delimiters]; }
+		$delimiters = array_filter($delimiters, 'strlen');
+		if(!sizeof($delimiters)) { $delimiters = [';']; }
+		$delimiter = $delimiters[0];
 		
 		if ($reader && !$reader->valuesCanRepeat()) {
 			// Expand delimited values in non-repeating sources to simulate repeats
 			foreach($source_data as $k => $v) {
 				if (!is_array($source_data[$k])) {
-				   //$source_data[$k] = array_filter(explode($delimiter, $source_data[$k]), "strlen");
-				   $source_data[$k] = [0 => $source_data[$k]] ; //array_filter(preg_split("!(".preg_quote(join('|', $delimiters)'!').")!", $source_data[$k]), "strlen");
+				   $source_data[$k] = is_array($delimiters) ? 
+				   	array_filter(preg_split('!'.preg_quote(join('|', $delimiters), '!').'!', $source_data[$k]), "strlen")
+				   	:
+				   	[0 => $source_data[$k]];
 				}
 			}
 		}
@@ -198,8 +202,8 @@ abstract class BaseRefinery {
 			
 			if (is_array($mval) && $tag[1]) { 
 				if(is_null($value_index)) {
-					foreach($mval as $vn_i => $sval) {
-						$mval[$vn_i] = caProcessTemplateTagDirectives($sval, [$tag[1]]);
+					foreach($mval as $i => $sval) {
+						$mval[$i] = caProcessTemplateTagDirectives($sval, [$tag[1]]);
 					}
 				} elseif(isset($mval[$value_index])) {
 					$mval = [
@@ -217,29 +221,27 @@ abstract class BaseRefinery {
 				// Make sure all tags are in source data array, otherwise try to pull them from the reader.
 				// Some formats, mainly XML, can take expressions (XPath for XML) that are not precalculated in the array
 				$extracted_data = [];
-				foreach($tags as $vs_tag) {
-					$tag = explode('~', $vs_tag);
+				foreach($tags as $tag) {
+					$tag = explode('~', $tag);
 					
 					if (!isset($source_data[$tag[0]])) { 
 						$mval = $reader->get($tag[0], ['returnAsArray' => true]);
-						if(!is_array($mval)) { $mval = [$mval]; }
 					} else {
 						$mval = $source_data[$tag[0]];
-						if(!is_array($mval)) { $mval = [$mval]; }
 					}
+					if(!is_array($mval)) { $mval = [$mval]; }
 					
 					if(!is_null($value_index)) { 
-						$mval = $va_val[$value_index] ?? null;
+						$mval = [$mval[$value_index]] ?? [];
 					}
 					
 					foreach($mval as $i => $v) {
-						$extracted_data[$i][$vs_tag] = $v;
+						$extracted_data[$i][$tag[0]] = $v;
 					}
 				}
-				
 				$mval = [];
 				foreach($extracted_data as $i => $iteration) {
-					$mval[] = caProcessTemplate($placeholder, $va_iteration);
+					$mval[] = caProcessTemplate($placeholder, $iteration);
 				}
 			} else {
 				// Is plain text
@@ -252,7 +254,8 @@ abstract class BaseRefinery {
 		
 		// Get specific index for repeating value
 		if (is_array($mval) && !is_null($value_index)) {
-			$mval = isset($mval[$value_index]) ? [$mval[$value_index]] : null;
+			// Set mapped value to value at index; if source data has only one value and ignoreIndexForNonRepeatingValues
+			$mval = isset($mval[$value_index]) ? [$mval[$value_index]] : ((sizeof($mval) === 1) ? $mval[0] : null);
 			
 			if (is_array($item['settings']['original_values']) && (($ix = array_search(mb_strtolower($mval[0]), $item['settings']['original_values'], true)) !== false)) {
 				$mval[0] = $item['settings']['replacement_values'][$ix];
@@ -261,7 +264,7 @@ abstract class BaseRefinery {
 				$mval[0] = caProcessImportItemSettingsForValue($mval[0], $item['settings'] ?? []);
 			}
 			// delimiter?
-			if(!is_null($get_at_index)) {
+			if(!is_null($get_at_index) && sizeof($delimiters)) {
 				$dvals = preg_split('!'.preg_quote(join('|', $delimiters), '!').'!', $mval[0]);
 				return $dvals[$get_at_index] ?? null;
 			}
@@ -270,11 +273,11 @@ abstract class BaseRefinery {
 
 		// Do processing on members
 		if(is_array($mval)) {
-			foreach($mval as $vn_i => $sval) {
+			foreach($mval as $i => $sval) {
 				if (is_array($item['settings']['original_values']) && (($ix = array_search(mb_strtolower($sval), $item['settings']['original_values'], true)) !== false)) {
 					$sval = $item['settings']['replacement_values'][$ix];
 				}
-				$mval[$vn_i] = trim($sval);
+				$mval[$i] = trim($sval);
 			}
 		}
 		

@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2019-2023 Whirl-i-Gig
+ * Copyright 2019-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -25,9 +25,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
-require_once(__CA_MODELS_DIR__."/ca_ip_bans.php");
-
 class BanHammer {
 	# ------------------------------------------------------
 	/**
@@ -63,7 +60,7 @@ class BanHammer {
 			if ($plugin == "BaseBanHammerPlugin.php") { continue; }
 			if (preg_match("/^([A-Za-z_]+[A-Za-z0-9_]*).php$/", $plugin, $m)) {
 				$n = $m[1];
-				require("{$p}/{$plugin}");
+				require_once("{$p}/{$plugin}");
 				$classname = "WLPlugBanHammer{$n}";
 				self::$plugin_names[$classname::$priority][] = $n;
 			}
@@ -81,9 +78,12 @@ class BanHammer {
 	 */
 	static public function verdict($request, $options=null) {
 		self::init();
+		if($request && $request->isLoggedIn()) { return true; }
 		if (!self::$config->get('enabled')) { return true; }
+		if (ca_ip_whitelist::isWhitelisted($options)) { return true; }
 		if (ca_ip_bans::isBanned($request)) { return false; }
 		
+		$use_plugin = caGetOption('usePlugin', $options, null);
 		
 		$module = $request->getModulePath();
 		$controller = $request->getController();
@@ -105,6 +105,8 @@ class BanHammer {
 		$non_zero_plugins = [];
 		foreach($plugin_names as $p) {
 			$classname = "WLPlugBanHammer{$p}";
+			if(!$use_plugin && $classname::isPartial()) { continue; }	// skip partial ban plugins here - are invoked specifically 
+			if($use_plugin && ($use_plugin !== $p)) { continue; }
 			$prob = $classname::evaluate($request, $options);
 			
 			if ($prob >= $threshold) { 

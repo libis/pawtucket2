@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2009-2022 Whirl-i-Gig
+ * Copyright 2009-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,7 +29,6 @@
  *
  * ----------------------------------------------------------------------
  */
-
 # ---------------------------------------
 /**
  * Generate URL tag for asset in current theme; if asset is not available the graphic in the default theme will be returned.
@@ -157,9 +156,16 @@ function caAddPageCSSClasses($pa_page_classes) {
  * @param RequestHTTP $po_request
  * @return string The "class" attribute with set classes or an empty string if no classes are set
  */
-function caGetPageCSSClasses() {
+function caGetPageCSSClasses(?array $options=null) {
 	global $g_theme_page_css_classes;
-	return (is_array($g_theme_page_css_classes) && sizeof($g_theme_page_css_classes)) ? "class='".join(' ', $g_theme_page_css_classes)."'" : '';
+	if(is_array($g_theme_page_css_classes) && sizeof($g_theme_page_css_classes)) {
+		if(caGetOption('asAttribute', $options, true)) {
+			return "class='".join(' ', $g_theme_page_css_classes)."'";
+		} else {
+			return $g_theme_page_css_classes;
+		}
+	}
+	return null;
 }
 # ---------------------------------------
 /**
@@ -484,7 +490,7 @@ function caObjectRepresentationThumbnails($po_request, $pn_representation_id, $p
 	}
 	$va_links = array();
 	$vn_primary_id = "";
-	foreach($va_reps as $va_rep){
+	foreach($va_reps as $i => $va_rep){
 		if(!isset($va_rep['media']) || !strlen((string)$va_rep['media'])) { continue; }
 		$vn_rep_id = $va_rep["representation_id"];
 		$vs_class = "";
@@ -513,9 +519,13 @@ function caObjectRepresentationThumbnails($po_request, $pn_representation_id, $p
 				$va_links[$vn_rep_id] = "<a href='#' onclick='$(\".{$ps_current_rep_class}\").removeClass(\"{$ps_current_rep_class}\"); $(this).parent().addClass(\"{$ps_current_rep_class}\"); $(this).addClass(\"{$ps_current_rep_class}\"); $(\".jcarousel\").jcarousel(\"scroll\", $(\"#slide".$vn_rep_id."\"), false); return false;' ".(($vs_class) ? "class='".$vs_class."'" : "").">".$vs_thumb.$vs_rep_label."</a>\n";
 				break;
 			# -------------------------------
+			case "basic":
+				$va_links[$vn_rep_id] = "<a href='#' id='repThumb_{$i}' onclick='return setItem({$i});' class='repThumb' data-representation_id='{$vn_rep_id}'>".$vs_thumb.$vs_rep_label."</a>\n";
+				break;
+			# -------------------------------
 			default:
 			case "detail":
-				$va_links[$vn_rep_id] = caDetailLink($po_request, $vs_thumb.$vs_rep_label, $vs_class, $pt_object->tableName(), $pt_object->getPrimaryKey(), array("representation_id" => $vn_rep_id));
+				$va_links[$vn_rep_id] = caDetailLink($po_request, $vs_thumb.$vs_rep_label, $vs_class, $pt_object->tableName(), $pt_object->getPrimaryKey(), ["representation_id" => $vn_rep_id], ['data-representation_id' => $vn_rep_id]);
 				break;
 			# -------------------------------
 		}
@@ -587,7 +597,7 @@ function caDetailItemComments($po_request, $pn_item_id, $t_item, $va_comments, $
 			$va_tag_links[] = caNavLink($po_request, $vs_tag, '', '', 'MultiSearch', 'Index', array('search' => $vs_tag));
 		}
 		$vs_tmp .= "<h2>"._t("Tags")."</h2>\n
-			<div id='tags'>".implode($va_tag_links, ", ")."</div>";
+			<div id='tags'>".implode(", ", $va_tag_links)."</div>";
 	}
 	if($po_request->isLoggedIn()){
 		$vs_tmp .= "<button type='button' class='btn btn-default' onclick='caMediaPanel.showPanel(\"".caNavUrl($po_request, '', 'Detail', 'CommentForm', array("tablename" => $t_item->tableName(), "item_id" => $t_item->getPrimaryKey()))."\"); return false;' >"._t("Add your tags and comment")."</button>";
@@ -600,7 +610,10 @@ function caDetailItemComments($po_request, $pn_item_id, $t_item, $va_comments, $
 /*
  * Returns the info for each set
  *
- * options: "write_access" = false
+ * Options include: 
+ * 		write_access = Show controls for modifying set. [Default is false]
+ *		set_description_code = Code for set description metadata element. Omit to not show set description text. [Default is null]		
+ *
  *
  */
 function caLightboxSetListItem($po_request, $t_set, $va_check_access = array(), $pa_options = array()) {
@@ -664,6 +677,11 @@ function caLightboxSetListItem($po_request, $t_set, $va_check_access = array(), 
 	}
 	$vs_set_display .= "<div class='row'>".$vs_primary_image_block."<div class='col-sm-6'><div id='comment{$vn_set_id}' class='lbSetComment'><!-- load comments here --></div>\n<div class='lbSetThumbRowContainer'><div class='row lbSetThumbRow' id='lbSetThumbRow{$vn_set_id}'>".$vs_secondary_image_block."</div><!-- end row --></div><!-- end lbSetThumbRowContainer --></div><!-- end col --></div><!-- end row -->";
 	$vs_set_display .= "</div><!-- end lbSetContent -->\n";
+	
+	if($set_description_code = caGetOption('set_description_code', $pa_options, null)) {
+		$vs_set_display .= $t_set->get("ca_sets.{$set_description_code}");
+	}
+	
 	$vs_set_display .= "<div class='lbSetExpandedInfo' id='lbExpandedInfo{$vn_set_id}'>\n<hr><div>created by: ".trim($t_set->get("ca_users.fname")." ".$t_set->get("ca_users.lname"))."</div>\n";
 	$vs_set_display .= "<div>"._t("Items: %1", $t_set->getItemCount(array("user_id" => $po_request->user->get("user_id"), "checkAccess" => $va_check_access)))."</div>\n";
 	if($vb_write_access){
@@ -910,6 +928,7 @@ function caGetDetailForType($pm_table, $pm_type=null, $pa_options=null) {
 			$vs_access_wheres = " AND ca_objects.access IN (".join(",", $pa_access_values).") AND ca_object_representations.access IN (".join(",", $pa_access_values).")";
 		}
 		$vs_table = $t_instance->tableName();
+		$vs_pk = $t_instance->primaryKey();
 		
 		$va_params = array();
 		if ($vs_table === 'ca_objects') {
@@ -991,7 +1010,7 @@ function caGetDetailForType($pm_table, $pm_type=null, $pa_options=null) {
                     if($versions_set) {
 		        		foreach($versions as $v) {
 		        			$version_info = $qr_res->getMediaInfo("media", $v);
-		        			$va_res[$id][$v]['tag'] = $qr_res->getMediaTag("media", $v);
+		        			$va_res[$id][$v]['tag'] = $qr_res->getMediaTag("media", $v, ['alt' => $alt_text]);
 		        			$va_res[$id][$v]['url'] = $qr_res->getMediaUrl("media", $v);
 		        			$va_res[$id][$v]['path'] = $qr_res->getMediaPath("media", $v);
 		        			$va_res[$id][$v]['width'] = $version_info['WIDTH'];
@@ -1554,7 +1573,6 @@ function caGetCollectionLevelSummary($po_request, $va_collection_ids, $vn_level)
 			if($vn_rel_object_count){
 				$vs_output .= " <span class='small'>(".$vn_rel_object_count." record".(($vn_rel_object_count == 1) ? "" : "s").")</span>";
 			}
-			$vs_output .= "<br/>";
 			if(!$vb_dont_show_top_level_description){
 				$vs_desc = "";
 				if($vs_sub_collection_desc_template && ($vs_desc = $qr_collections->getWithTemplate($vs_sub_collection_desc_template))){
@@ -1631,7 +1649,8 @@ function caGetBrowseLinks($t_instance, string $bundle, ?array $options=null) : ?
 						
 			switch($bundle_type) {
 				case 'attribute':
-					if(($facet_info['type'] === 'attribute') && ($facet_info['element_code'] === $b)) {
+					$tmp = array_pop(explode('.', $facet_info['element_code']));
+					if(($facet_info['type'] === 'attribute') && ($tmp === $b)) {
 						$facet = $k;
 						$fld = $bundle;
 						break(2);
@@ -1659,6 +1678,10 @@ function caGetBrowseLinks($t_instance, string $bundle, ?array $options=null) : ?
 		$bt = caGetBrowseForType($table, $t_instance->getTypeCode());
 		$text = $template ? explode('|', $t_instance->getWithTemplate($z="<unit relativeTo='{$bundle}' delimiter='|' {$restrict_to_types_attr} {$restrict_to_relationship_types_attr}>{$template}</unit>", ['returnAsArray' => false, 'convertCodesToDisplayText' => true, 'makeLink' => false, 'checkAccess' => $access_values])) : $t_instance->get($bundle, ['restrictToRelationshipTypes' => $restrict_to_relationship_types, 'restrictToTypes' => $restrict_to_types, 'returnAsArray' => true, 'convertCodesToDisplayText' => true, 'makeLink' => false, 'checkAccess' => $access_values]);
 		if(!sizeof(array_filter($text, 'strlen'))) { return null; }
+		
+		$text = array_map(function($v) {
+			return preg_replace("!\[[^\]]*\]!", "", $v);
+		}, $text);
 		$ids = $t_instance->get($fld, ['restrictToRelationshipTypes' => $restrict_to_relationship_types, 'restrictToTypes' => $restrict_to_types, 'returnAsArray' => true, 'convertCodesToIdnos' => false, 'makeLink' => false, 'checkAccess' => $access_values]);
 		
 		$links = caCreateBrowseLinksFromText($text, $bt, array_map(function($v) use ($facet) { return ['facet' => $facet, 'id' => $v]; }, $ids), '', []);
@@ -1717,7 +1740,7 @@ function caGetSearchLinks($t_instance, string $bundle, ?array $options=null) : ?
 	$values = $t_instance->get($bundle, ['restrictToRelationshipTypes' => $restrict_to_relationship_types, 'restrictToTypes' => $restrict_to_types, 'returnAsArray' => true, 'convertCodesToDisplayText' => true, 'makeLink' => false, 'checkAccess' => $access_values]);
 	
 	$text = array_map(function($v) {
-		return preg_replace("!\[[^\]]*\]$!", "", $v);
+		return preg_replace("!\[[^\]]*\]!", "", $v);
 	}, $text);
 	$values = array_map(function($v) {
 		return preg_replace("![\"\']+!", "", preg_replace("!\[[^\]]*\]$!", "", $v));

@@ -29,17 +29,13 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
 require_once(__CA_LIB_DIR__.'/Import/BaseDataReader.php');
 require_once(__CA_APP_DIR__.'/helpers/displayHelpers.php');
 
 class ExcelDataReader extends BaseDataReader {
 	# -------------------------------------------------------
 	private $opo_handle = null;
+	private $sheet_num = 0;
 	private $opo_rows = null;
 	private $opa_row_buf = array();
 	private $opn_current_row = 0;
@@ -76,7 +72,7 @@ class ExcelDataReader extends BaseDataReader {
 		parent::read($ps_source, $pa_options);
 		try {
 			$this->opo_handle = \PhpOffice\PhpSpreadsheet\IOFactory::load($ps_source);
-			$this->opo_handle->setActiveSheetIndex(caGetOption('dataset', $pa_options, 0));
+			$this->opo_handle->setActiveSheetIndex($this->sheet_num = caGetOption('dataset', $pa_options, 0));
 			$o_sheet = $this->opo_handle->getActiveSheet();
 			$this->opo_rows = $o_sheet->getRowIterator();
 			$this->opn_current_row = 0;
@@ -97,7 +93,7 @@ class ExcelDataReader extends BaseDataReader {
 				}
 				$headers = array_map(function($v) { return mb_strtolower($v); }, $headers);
 
-				if(sizeof(array_filter($headers, function($v) { $v = trim($v); return !(!strlen($v) || preg_match('!^[a-z0-9_\-\.:]+$!', $v)); })) === 0) {
+				if(caGetOption('headers', $pa_options, false) || (sizeof(array_filter($headers, function($v) { $v = trim($v); return !(!strlen($v) || preg_match('!^[a-z0-9_\-\.:]+$!', $v)); })) === 0)) {
 					// looks like headers
 					array_unshift($headers, ''); // 1-based
 					$this->headers = $headers;
@@ -151,7 +147,7 @@ class ExcelDataReader extends BaseDataReader {
 					}
 					
 					if(sizeof($this->headers) && isset($this->headers[$vn_col])) {
-						$this->opa_row_buf[$this->headers[$vn_col]] = $vs_val;	
+						$this->opa_row_buf[$this->headers[$vn_col]] = $this->opa_row_buf['/'.$this->headers[$vn_col]] = $vs_val;	
 					}
 
 					$vn_col++;
@@ -178,8 +174,8 @@ class ExcelDataReader extends BaseDataReader {
 	 */
 	public function seek($pn_row_num) {
 		$this->opn_current_row = $pn_row_num-1;
-		$this->opo_rows->seek(($pn_row_num > 0) ? $pn_row_num : 0);
-		return $this->nextRow();
+		$this->opo_rows->seek($seek = ($pn_row_num > 0) ? $pn_row_num : 0);
+		return ($seek <= 1) ? $this->nextRow() : true;
 	}
 	# -------------------------------------------------------
 	/**
@@ -190,6 +186,19 @@ class ExcelDataReader extends BaseDataReader {
 	 * @return mixed
 	 */
 	public function get($pn_col, $pa_options=null) {
+		$return_as_array = caGetOption('returnAsArray', $pa_options, false);
+		
+		switch($pn_col) {
+			case '__sheetname__':
+				$sheet = $this->opo_handle->getActiveSheet();
+				$name = $sheet->getTitle();
+				return $return_as_array ? [$name] : $name;
+				break;
+			case '__sheetnum__':
+				$num = $this->sheet_num + 1;
+				return $return_as_array ? [$num] : $num;
+				break;
+		}
 		if ($vm_ret = parent::get($pn_col, $pa_options)) { return $vm_ret; }
 		
 		if(!is_numeric($pn_col)) {
@@ -293,7 +302,7 @@ class ExcelDataReader extends BaseDataReader {
 	 *
 	 */
 	public static function getCellAsHTML($po_cell) {
-		$o_value = $po_cell->getValue();
+		$o_value = $po_cell->getCalculatedValue();
 		
 		if ($o_value instanceof \PhpOffice\PhpSpreadsheet\RichText\RichText) {
 			$va_elements = $o_value->getRichTextElements();

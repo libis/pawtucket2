@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2010-2023 Whirl-i-Gig
+ * Copyright 2010-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,7 +29,6 @@
  * 
  * ----------------------------------------------------------------------
  */
- 
 require_once(__CA_LIB_DIR__.'/ModelSettings.php');
 
 define('__CA_BUNDLE_DISPLAY_NO_ACCESS__', 0);
@@ -505,7 +504,7 @@ class ca_bundle_displays extends BundlableLabelableBaseModelWithAttributes {
 		
 		if ($qr_res->numRows() > 0) {
 			$vs_subject_table = Datamodel::getTableName($this->get('table_num'));
-			$t_subject = Datamodel::getInstanceByTableNum($this->get('table_num'), true);
+			if(!$t_subject = Datamodel::getInstanceByTableNum($this->get('table_num'), true)) { return []; }
 			$t_placement = new ca_bundle_display_placements();
 			if ($this->inTransaction()) { $t_placement->setTransaction($this->getTransaction()); }
 			
@@ -580,9 +579,8 @@ if (!$pb_omit_editing_info) {
 									$placements[$placement_id]['allowInlineEditing'] = $vb_user_can_edit;
 								}
 							}
-
 							switch($t_subject->getFieldInfo($va_bundle_name[1], 'DISPLAY_TYPE')) {
-								case 'DT_SELECT':
+								case DT_SELECT:
 									if ($vs_list_code = $t_subject->getFieldInfo($va_bundle_name[1], 'LIST')) {
 										$vb_use_item_values = true;
 									} else {
@@ -700,6 +698,7 @@ if (!$pb_omit_editing_info) {
 	 *			user_id = Restricts returned displays to those accessible by the current user. If omitted then all displays, regardless of access are returned.
 	 *			restrictToTypes = Restricts returned displays to those bound to the specified type. Default is to not restrict by type.
 	 *			access = Restricts returned displays to those with at least the specified access level for the specified user. If user_id is omitted then this option has no effect. If user_id is set and this option is omitted, then displays where the user has at least read access will be returned. 
+	 *          context = context to filter display list for. [Default is null – no filtering performed]
 	 * @return array Array of displays keyed on display_id and then locale_id. Keys for the per-locale value array include: display_id,  display_code, user_id, table_num,  label_id, name (display name of display), locale_id (locale of display name), bundle_display_content_type (display name of content this display pertains to)
 	 */
 	 public function getBundleDisplays($options=null) {
@@ -808,6 +807,16 @@ if (!$pb_omit_editing_info) {
 			
 			$va_displays[$qr_res->get('display_id')][$qr_res->get('locale_id')]['settings'] = caUnserializeForDatabase($va_displays[$qr_res->get('display_id')][$qr_res->get('locale_id')]['settings']);
 		}
+		if($context = caGetOption('context', $options, null)) {
+			foreach($va_displays as $display_id => $info) {
+				if(!is_array($info)) { continue; }
+				$info = array_shift($info);
+				if (is_array($info['settings']['show_only_in']) && sizeof($info['settings']['show_only_in']) && !in_array($context, $info['settings']['show_only_in'])) { 
+					unset($va_displays[$display_id]);
+					continue; 
+				}
+			}
+		}
 		return $va_displays;
 	}
 	# ------------------------------------------------------
@@ -838,12 +847,6 @@ if (!$pb_omit_editing_info) {
 			(isset($options['addDefaultDisplayIfEmpty']) &&  ($options['addDefaultDisplayIfEmpty']) && (!sizeof($va_available_displays)))
 		) {
 			$va_content[_t('Default')] = 0;
-		}
-		
-		$ps_context = caGetOption('context', $options, null);
-		foreach($va_available_displays as $vn_display_id => $info) {
-		    if ($ps_context && is_array($info['settings']['show_only_in']) && sizeof($info['settings']['show_only_in']) && !in_array($ps_context, $info['settings']['show_only_in'])) { continue; }
-			$va_content[$info['name']] = $vn_display_id;
 		}
 		
 		if (sizeof($va_content) == 0) { return ''; }
@@ -1096,6 +1099,16 @@ if (!$pb_omit_editing_info) {
 				'description' => _t('Template used to format output.'),
 				'helpText' => ''
 			),
+			'locale' => array(
+				'formatType' => FT_TEXT,
+				'displayType' => DT_SELECT,
+				'width' => "200px", 'height' => 1,
+				'default' => '',
+				'useLocaleList' => true,
+				'allowNull' => true,
+				'label' => _t('Locale'),
+				'description' => _t('Locale to use for output.')
+			),
 			'delimiter' => array(
 				'formatType' => FT_TEXT,
 				'displayType' => DT_FIELD,
@@ -1133,7 +1146,7 @@ if (!$pb_omit_editing_info) {
 				continue;	
 			}
 			
-			switch($va_all_elements[$vn_element_id]['datatype']) {
+			switch($va_all_elements[$vn_element_id]['datatype'] ?? null) {
 				case __CA_ATTRIBUTE_VALUE_TEXT__:
 					$va_even_more_settings = array(
 						'newlines' => array(
@@ -1200,7 +1213,7 @@ if (!$pb_omit_editing_info) {
 						)		
 					);
 					
-					if ($va_all_elements[$vn_element_id]['datatype'] == 6) {
+					if (($va_all_elements[$vn_element_id]['datatype'] ?? null) == 6) {
 						$va_even_more_settings['display_currency_conversion'] = array(
 							'formatType' => FT_NUMBER,
 							'displayType' => DT_CHECKBOXES,
@@ -1254,6 +1267,16 @@ if (!$pb_omit_editing_info) {
 					'default' => '',
 					'label' => _t('Display format'),
 					'description' => _t('Template used to format output.')
+				),
+				'locale' => array(
+					'formatType' => FT_TEXT,
+					'displayType' => DT_SELECT,
+					'width' => "200px", 'height' => 1,
+					'default' => '',
+					'useLocaleList' => true,
+					'allowNull' => true,
+					'label' => _t('Locale'),
+					'description' => _t('Locale to use for output.')
 				),
 				'delimiter' => array(
 					'formatType' => FT_TEXT,
@@ -1485,6 +1508,15 @@ if (!$pb_omit_editing_info) {
 					'default' => '',
 					'label' => _t('Display format'),
 					'description' => _t('Template used to format output.')
+				),			
+				'delimiter' => array(
+					'formatType' => FT_TEXT,
+					'displayType' => DT_FIELD,
+					'width' => 35, 'height' => 1,
+					'takesLocale' => false,
+					'default' => '; ',
+					'label' => _t('Delimiter'),
+					'description' => _t('Text to place in-between repeating values.')
 				),
 				'policy' => array(
 					'formatType' => FT_TEXT,
@@ -1494,8 +1526,35 @@ if (!$pb_omit_editing_info) {
 					'useHistoryTrackingReferringPolicyList' => true,
 					'label' => _t('Use history tracking policy'),
 					'description' => ''
-				)
+				),
+				'sortDirection' => array(
+					'formatType' => FT_TEXT,
+					'displayType' => DT_SELECT,
+					'width' => "200px", 'height' => "1",
+					'takesLocale' => false,
+					'default' => 'ASC',
+					'options' => array(
+						_t('Ascending') => 'ASC',
+						_t('Descending') => 'DESC'
+					),
+					'label' => _t('Initial sort direction'),
+					'description' => _t('Direction of sort, when sort is specified.')
+				),
 			);
+			$policy_tables = ca_objects::getHistoryTrackingCurrentValuePolicyTargets();								
+			foreach($policy_tables as $t) {
+				$tl = Datamodel::getTableProperty($t, 'NAME_SINGULAR');
+				$va_additional_settings["sort_{$t}"] = [
+					'formatType' => FT_TEXT,
+					'displayType' => DT_SELECT,
+					'width' => "475px", 'height' => 1,
+					'takesLocale' => false,
+					'default' => '',
+					'label' => _t('Initially sort %1 policies using', $tl),
+					'showSortableBundlesFor' => ['table' => $t],
+					'description' => _t('Default sort for %1 policies.', $tl)
+				];
+			}
 			$t_placement = new ca_bundle_display_placements(null, null, $va_additional_settings);
 			if ($this->inTransaction()) { $t_placement->setTransaction($this->getTransaction()); }
 			
@@ -2199,13 +2258,14 @@ if (!$pb_omit_editing_info) {
 			$val = $bundle = null;
 			switch((int)$pn_placement_id) {
 				case -1:	// idno
-					if($instance = $po_result->getInstance()) {
+					
+					if($instance = is_a($po_result, 'BaseModel') ? $po_result : $po_result->getInstance()) {
 						$val = $po_result->get($bundle = $instance->tableName().'.'.$instance->getProperty('ID_NUMBERING_ID_FIELD'));
 					}
 					$bundle_type =  'intrinsic';
 					break;
 				case -2:	// display name	
-					if($instance = $po_result->getInstance()) {
+					if($instance = is_a($po_result, 'BaseModel') ? $po_result : $po_result->getInstance()) {
 						$val = $po_result->get($bundle = $instance->tableName().'.preferred_labels');
 					}
 					$bundle_type =  'preferred_labels';
@@ -2248,6 +2308,7 @@ if (!$pb_omit_editing_info) {
 		if (!isset($options['maximumLength'])) { $options['maximumLength'] =  ($va_settings['maximum_length'] ?? null) ? $va_settings['maximum_length'] : null; }
 		if (!isset($options['filter'])) { $options['filter'] = caGetOption('filter', $va_settings, null); }
 		
+		$options['locale'] = ca_locales::IDToCode(caGetOption('locale', $va_settings, caGetOption('locale', $options, null)));
 		$options['delimiter'] = caGetOption('delimiter', $options, caGetOption('delimiter', $va_settings, '; '));
 		$options['dateFormat'] = caGetOption('dateFormat', $options, caGetOption('dateFormat', $va_settings, ''));
 		$options['useSingular'] = (isset($va_settings['sense']) && ($va_settings['sense'] == 'singular')) ? true : false;
@@ -2290,6 +2351,11 @@ if (!$pb_omit_editing_info) {
 		if(!$pb_show_hierarchy && $vs_template) {
 			unset($options['template']);
 			
+			// Hack to rewrite object-object lot relationship in standard relationship syntax for display template
+			if(($va_bundle_bits[0] === 'ca_objects') && ($va_bundle_bits[1] === 'lot_id')) {
+				$va_bundle_bits = ['ca_object_lots'];
+			}
+			
 			if ($t_instance = Datamodel::getInstanceByTableName($va_bundle_bits[0], true)) {
 				$va_bundle_bits_proc = $va_bundle_bits;
 				$vb_is_related = false;
@@ -2305,6 +2371,7 @@ if (!$pb_omit_editing_info) {
 					$va_bundle_bits_proc[] = $t_instance->primaryKey();
 				}
 				
+				$element_code = $va_bundle_bits[sizeof($va_bundle_bits)-1];
 				if ($vb_is_related) {
 					$vs_restrict_to_types = (is_array($options['restrictToTypes']) && sizeof($options['restrictToTypes'])) ? "restrictToTypes=\"".join("|", $options['restrictToTypes'])."\"" : "";
 					$vs_restrict_to_relationship_types = (is_array($options['restrictToRelationshipTypes']) && sizeof($options['restrictToRelationshipTypes'])) ? "restrictToRelationshipTypes=\"".join("|", $options['restrictToRelationshipTypes'])."\"" : "";
@@ -2357,18 +2424,30 @@ if (!$pb_omit_editing_info) {
 								break;
 						}
 					}
+				} elseif(($element_code === 'history_tracking_current_contents') && ($policy = $va_settings['policy'] ?? null) && ($policy_info = ca_objects::getHistoryTrackingCurrentValuePolicy($policy))) {
+					// resolve template relative to target of history tracking policy
+					if($target = $policy_info['table'] ?? null) {
+						$t_instance = is_a($po_result, 'SearchResult') ? $po_result->getInstance() : $po_result;
+						
+						if ($ids = $t_instance->getContents($policy, ['idsOnly' => true])) {
+							$values = caProcessTemplateForIDs($vs_template, $target, $ids, ['returnAsArray' => true, 'sort' => $va_settings["sort_{$target}"] ?? null, 'sortDirection' => $va_settings["sortDirection"] ?? null]);
+							$vs_val = join($options['delimiter'] ?? "; ", $values);
+						}
+					}
 				} else {
 					// resolve template relative to current record
 					$rtc = null;
-					$element_code = $va_bundle_bits[sizeof($va_bundle_bits)-1];
-					if($element_code !== '_generic_bundle_') {
+					if(!in_array($element_code, ['_generic_bundle_', 'history_tracking_current_value'], true)) {
+						// Set container context for all bundles except generic and current value bundles
+						// We skip current value bundles because some extant templates pull in data outside of the current value
+						// container for display, and as current value never repeats the utility of setting context here is limited
 						$dt = ca_metadata_elements::getElementDatatype($element_code);
 						$rtc = ($dt === 0) ? $vs_bundle_name : null;
 					}
 					$vs_val = $po_result->getWithTemplate($vs_template, [
 							'relativeToContainer' => $rtc, 
 							'filters'=> $options['filters'] ?? null, 
-							'delimiter' => $options['delimiter'] ?? null, 
+							'delimiter' => $options['delimiter'] ?? "; ", 
 							'policy' => $va_settings['policy'] ?? null
 						]		// passed for history tracking current value
 					);
@@ -2381,8 +2460,12 @@ if (!$pb_omit_editing_info) {
 			}
 			
 			// policy passed for history tracking current value
-			// returnPath passed to force absolute file path to be used when running reports – some systems cannot handle urls in PDFs due to DNS configuration
-			$vs_val = $po_result->get(join(".", $va_bundle_bits), array_merge(['doRefSubstitution' => true], $options, ['policy' => $va_settings['policy'] ?? null, 'returnPath' => $options['forReport']]));	
+			// returnTagWithPath passed to force absolute file path to be used when running reports – some systems cannot handle urls in PDFs due to DNS configuration
+			$vs_val = $po_result->get(join(".", $va_bundle_bits), array_merge(['doRefSubstitution' => true], $options, ['policy' => $va_settings['policy'] ?? null, 'returnTagWithPath' => $options['forReport']]));	
+		}
+		
+		if($options['forReport']) {
+			$vs_val = strip_tags($vs_val, $this->getAppConfig()->get('report_allowed_text_tags') ?? []);
 		}
 		
 		if (isset($options['purify']) && $options['purify']) {
@@ -2502,7 +2585,7 @@ if (!$pb_omit_editing_info) {
 		}
 		if(($options['maximumLength'] > 0) && (mb_strlen($vs_val) > $options['maximumLength'])) {
 			$doc = new DOMDocument();
-			@$doc->loadHTML('<?xml encoding="utf-8" ?>'.mb_substr($vs_val, 0, $options['maximumLength']));
+			@$doc->loadHTML('<?xml encoding="utf-8" ?>'.mb_substr(caEscapeForXML($vs_val), 0, $options['maximumLength']));
 			return $doc->saveHTML();
 		}
 		
@@ -2526,7 +2609,6 @@ if (!$pb_omit_editing_info) {
 	public function savePlacementsFromHTMLForm($request, $ps_form_prefix, $ps_placement_code) {;
 		if ($vs_bundles = $request->getParameter("{$ps_placement_code}{$ps_form_prefix}displayBundleList", pString)) {
 			$va_bundles = explode(';', $vs_bundles);
-			
 			$t_display = new ca_bundle_displays($this->getPrimaryKey());
 			if ($this->inTransaction()) { $t_display->setTransaction($this->getTransaction()); }
 			$placements = $t_display->getPlacements(array('user_id' => $request->getUserID()));
@@ -2572,7 +2654,7 @@ if (!$pb_omit_editing_info) {
 					}
 				}
 				
-				if($placement_id === 0) {
+				if(((int)$placement_id === 0)) {
 					$t_display->addPlacement($vs_bundle, $va_settings[$placement_id] ?? null, $i + 1, array('user_id' => $request->getUserID(), 'additional_settings' => $va_available_bundles[$vs_bundle]['settings'] ?? []));
 					if ($t_display->numErrors()) {
 						$this->errors = $t_display->errors;
@@ -2581,7 +2663,6 @@ if (!$pb_omit_editing_info) {
 				} else {
 					$t_placement = new ca_bundle_display_placements($placement_id, null, $va_available_bundles[$vs_bundle]['settings']);
 					if ($this->inTransaction()) { $t_placement->setTransaction($this->getTransaction()); }
-					$t_placement->setMode(ACCESS_WRITE);
 					$t_placement->set('rank', $i + 1);
 					
 					if (is_array($va_settings[$placement_id] ?? null)) {
@@ -2918,7 +2999,11 @@ if (!$pb_omit_editing_info) {
 			$label_display_field = $t_label ? $t_label->getDisplayField() : null;
 			foreach($display_list as $i => $display_item) {
 				$tmp = explode('.', $display_item['bundle_name']);
-				
+
+				if(!isset($tmp[1])){
+					$tmp[1] = null;
+				}
+
 				if (
 					(($tmp[0] === $label_table_name) && ($tmp[1] === $label_display_field))
 					||
@@ -3250,7 +3335,7 @@ if (!$pb_omit_editing_info) {
 		// 
 		$restrict_to_types = null;
 		if ($t_subject->getAppConfig()->get('perform_type_access_checking')) {
-			$restrict_to_types = caGetTypeRestrictionsForUser($this->ops_tablename, array('access' => __CA_BUNDLE_ACCESS_EDIT__));
+			$restrict_to_types = caGetTypeRestrictionsForUser($table, array('access' => __CA_BUNDLE_ACCESS_EDIT__));
 		}
 		if (is_array($restrict_to_types) && !in_array($t_subject->get('type_id'), $restrict_to_types)) {
 			return [
@@ -3270,7 +3355,7 @@ if (!$pb_omit_editing_info) {
 		// 
 		$restrict_to_sources = null;
 		if ($t_subject->getAppConfig()->get('perform_source_access_checking')) {
-			if (is_array($restrict_to_sources = caGetSourceRestrictionsForUser($this->ops_tablename, array('access' => __CA_BUNDLE_ACCESS_EDIT__)))) {
+			if (is_array($restrict_to_sources = caGetSourceRestrictionsForUser($table, array('access' => __CA_BUNDLE_ACCESS_EDIT__)))) {
 				if (
 					(!$t_subject->get('source_id'))
 					||
@@ -3315,14 +3400,7 @@ if (!$pb_omit_editing_info) {
 		if ($idno_context_field = $t_subject->getProperty('ID_NUMBERING_CONTEXT_FIELD')) {
 			if ($t_subject->getPrimaryKey() > 0) {
 				$context_id = $t_subject->get($idno_context_field);
-			} else {
-				if ($parent_id > 0) {
-					$t_parent = Datamodel::getInstanceByTableName($this->ops_tablename);
-					if ($t_parent->load($parent_id)) {
-						$context_id = $t_parent->get($idno_context_field);
-					}
-				}
-			}
+			} 
 			
 			if ($context_id) { $t_subject->set($idno_context_field, $context_id); }
 		}

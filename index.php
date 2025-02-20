@@ -64,8 +64,9 @@
 		$g_request = $app->getRequest();
 		$resp = $app->getResponse();
 		
-		if (!BanHammer::verdict($g_request)) {
-			die("Connection refused");
+		if (($g_request->getController() !== 'Ban') && !BanHammer::verdict($g_request)) {
+			Session::setVar('pawtucket2_page_at_ban', $g_request->getFullUrlPath());
+			$g_request->setInternalRedirect(['module' => '', 'controller' => 'Ban', 'action' => 'verify']);
 		}
 
 		// TODO: move this into a library so $_, $g_ui_locale_id and $g_ui_locale gets set up automatically
@@ -86,8 +87,7 @@
 		
 		$t_locale = new ca_locales();
 		$g_ui_locale_id = $t_locale->localeCodeToID($g_ui_locale);		// get current UI locale as locale_id	  (available as global)
-		
-		if($vs_lang) {
+		if($vs_lang || (!isset($_locale)) || (isset($_COOKIE['CA_'.__CA_APP_NAME__.'_ui_locale']) && ($g_ui_locale != $_COOKIE['CA_'.__CA_APP_NAME__.'_ui_locale']))) {
 			if(!initializeLocale($g_ui_locale)) die("Error loading locale ".$g_ui_locale);
 			$g_request->reloadAppConfig();	// need to reload app config to reflect current locale
 		}
@@ -124,12 +124,10 @@
 		caEmitHeaders($resp);
 		
 		//
-		// Dispatch the request
-		//
-		//
 		// Don't try to authenticate when doing a login attempt or trying to access the 'forgot password' feature
+		// Do try to authenticate when login is required or session has a user_id set (may have been set by single-sign-on)
 		//
-		if ((AuthenticationManager::supports(__CA_AUTH_ADAPTER_FEATURE_USE_ADAPTER_LOGIN_FORM__) && !preg_match("/^[\/]{0,1}system\/auth\/callback/", strtolower($g_request->getPathInfo()))) || !preg_match("/^[\/]{0,1}system\/auth\/(dologin|login|forgot|requestpassword|initreset|doreset|callback)/", strtolower($g_request->getPathInfo()))) {
+		if (((bool)$g_request->config->get('pawtucket_requires_login') || (Session::$s_session_vars[__CA_APP_NAME__.'_user_id'])) && ((!preg_match("/^[\/]{0,1}system\/auth\/callback/", strtolower($g_request->getPathInfo()))) || !preg_match("/^[\/]{0,1}system\/auth\/(dologin|login|forgot|requestpassword|initreset|doreset|callback)/", strtolower($g_request->getPathInfo())))) {
 		    $vb_auth_success = $g_request->doAuthentication(array('dont_redirect' => true, 'noPublicUsers' => false, 'allow_external_auth' => ($g_request->getController() == 'LoginReg')));
 		}
 		$app->dispatch(true);
@@ -140,7 +138,7 @@
 		$resp->sendResponse();
 	
 		// Note url of this page as "last page"
-		if (($g_request->getController() != 'LoginReg') && (!$g_request->isAjax()) && (!$g_request->getParameter('dont_set_pawtucket2_last_page', pInteger))) {	// the 'dont_set_pawtucket2_last_page' is a lame-but-effective way of suppressing recording of something we don't want to be a "last page" (and potentially redirected to)
+		if ((!in_array($g_request->getController(), ['LoginReg', 'Ban']) && (!$g_request->isAjax()) && (!$g_request->getParameter('dont_set_pawtucket2_last_page', pInteger)))) {	// the 'dont_set_pawtucket2_last_page' is a lame-but-effective way of suppressing recording of something we don't want to be a "last page" (and potentially redirected to)
 			Session::setVar('pawtucket2_last_page', $g_request->getFullUrlPath());
 		}
 		$g_request->close();

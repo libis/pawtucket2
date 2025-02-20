@@ -29,16 +29,11 @@
  * 
  * ----------------------------------------------------------------------
  */
- 
-/**
- *
- */
 require_once(__CA_LIB_DIR__.'/BundlableLabelableBaseModelWithAttributes.php');
 require_once(__CA_MODELS_DIR__.'/ca_metadata_elements.php');
 require_once(__CA_MODELS_DIR__.'/ca_editor_uis.php');
 require_once(__CA_MODELS_DIR__.'/ca_editor_ui_bundle_placements.php');
 require_once(__CA_MODELS_DIR__.'/ca_editor_ui_screen_type_restrictions.php');
-
 
 BaseModel::$s_ca_models_definitions['ca_editor_ui_screens'] = array(
  	'NAME_SINGULAR' 	=> _t('editor UI screen'),
@@ -263,7 +258,8 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 	 * @param int $pn_rank Optional value that determines sort order of bundles in the screen. If omitted, placement is added to the end of the screen.
 	 * @param array $pa_options Optional array of options. Supports the following options:
 	 * 		user_id = if specified then add will fail if specified user does not have edit access for the display
-	 * @return int Returns placement_id of newly created placement on success, false on error
+	 *		returnInstance = return newly created ca_editor_ui_bundle_placements instance instead of placement_id
+	 * @return int|ca_editor_ui_bundle_placements Returns placement_id of newly created placement on success (or ca_editor_ui_bundle_placements instance if returnInstance option is set), false on error
 	 */
 	public function addPlacement($ps_bundle_name, $ps_placement_code, $pa_settings, $pn_rank=null, $pa_options=null) {
 		if (!($vn_screen_id = $this->getPrimaryKey())) { return null; }
@@ -320,7 +316,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 		
 		// Dependent field visibility config relies on UI config
 		if ($this->getAppConfig()->get('enable_dependent_field_visibility')) { CompositeCache::flush('ca_metadata_elements_available_settings'); }
-		return $t_placement->getPrimaryKey();
+		return caGetOption('returnInstance', $pa_options, false) ? $t_placement : $t_placement->getPrimaryKey();
 	}
 	# ------------------------------------------------------
 	/**
@@ -349,7 +345,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 	                $t_p = new ca_editor_ui_bundle_placements($placement_id);
 	                $t_p->set('rank', $old_rank = $t_p->get('rank') + 1);
 	                if (!$t_p->update()) {
-	                    $this->errors = $t_o->errors;
+	                    $this->errors = $t_p->errors;
 	                    return false;
 	                }
 	            }
@@ -393,7 +389,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 	                $t_p = new ca_editor_ui_bundle_placements($placement_id);
 	                $t_p->set('rank', $t_p->get('rank') + 2);
 	                if (!$t_p->update()) {
-	                    $this->errors = $t_o->errors;
+	                    $this->errors = $t_p->errors;
 	                    return false;
 	                }
 	            }
@@ -790,6 +786,15 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 							'width' => "275px", 'height' => 1,
 							'label' => _t('Documentation URL'),
 							'description' => _t('URL pointing to documentation for this field. Leave blank if you wish to use the default URL for this metadata element.')
+						),
+						'dontShowDeleteButton' => array(
+							'formatType' => FT_TEXT,
+							'displayType' => DT_CHECKBOXES,
+							'width' => 10, 'height' => 1,
+							'takesLocale' => false,
+							'default' => '0',
+							'label' => _t('Do not show delete button'),
+							'description' => _t('If checked the delete control will not be provided.')
 						)
 					);
 					if ($va_elements[$bundle_proc]['datatype'] == 1) {		// 1=text
@@ -853,7 +858,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								'takesLocale' => false,
 								'default' => '0',
 								'label' => _t('Do not show delete button'),
-								'description' => _t('If checked the delete relationship control will not be provided.')
+								'description' => _t('If checked the delete control will not be provided.')
 							),
 							'display_template' => array(
 								'formatType' => FT_TEXT,
@@ -912,6 +917,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 					} else {
 						if (!($t_rel = Datamodel::getInstanceByTableName($bundle, true))) { continue(2); }
 						$va_path = array_keys(Datamodel::getPath($t_instance->tableName(), $bundle));
+						
 						$va_additional_settings = array(
 							'restrict_to_relationship_types' => array(
 								'formatType' => FT_TEXT,
@@ -1008,6 +1014,15 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								'label' => _t('Last item color'),
 								'description' => _t('If set last item in list will use this color.')
 							),
+							'dontShowAddButton' => array(
+								'formatType' => FT_TEXT,
+								'displayType' => DT_CHECKBOXES,
+								'width' => 10, 'height' => 1,
+								'takesLocale' => false,
+								'default' => '0',
+								'label' => _t('Do not show add button'),
+								'description' => _t('If checked the add control will not be provided.')
+							),
 							'dontShowDeleteButton' => array(
 								'formatType' => FT_TEXT,
 								'displayType' => DT_CHECKBOXES,
@@ -1015,7 +1030,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								'takesLocale' => false,
 								'default' => '0',
 								'label' => _t('Do not show delete button'),
-								'description' => _t('If checked the delete relationship control will not be provided.')
+								'description' => _t('If checked the delete control will not be provided.')
 							),
 							'display_template' => array(
 								'formatType' => FT_TEXT,
@@ -1082,7 +1097,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								'displayType' => DT_SELECT,
 								'width' => "275px", 'height' => "40px",
 								'takesLocale' => false,
-								'default' => '0',
+								'default' => null,
 								'options' => [_t('Preferred label') => 'preferred_labels', _t('Identifier') => $t_rel->getProperty('ID_NUMBERING_ID_FIELD')],
 								'label' => _t('Prepopulate quick add fields with search text'),
 								'description' => _t('Select quickadd form fields to be pre-filled with the user-entered search value. If no fields are selected then the preferred label will be prepopulated by default.')
@@ -1108,7 +1123,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 									_t('Descending') => 'DESC'
 								),
 								'label' => _t('Initial sort direction'),
-								'description' => _t('Direction of sort, when not in a user-specified order.')
+								'description' => _t('Direction of sort, when sort is specified.')
 							),
 							'disableSorts' => array(
 								'formatType' => FT_TEXT,
@@ -1170,10 +1185,27 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								'width' => 10, 'height' => 1,
 								'takesLocale' => false,
 								'default' => false,
-								'label' => _t('Show set representtion button?'),
+								'label' => _t('Show set representation button?'),
+								'showOnSelect' => ['useRepresentationRelationshipType'],
 								'description' => _t('If checked an option to link media from related records to the edited record will be displayed.')
-							)
+							),
+							'useRepresentationRelationshipType' => array(
+								'formatType' => FT_TEXT,
+								'displayType' => DT_SELECT,
+								'useRelationshipTypeList' => $va_path[1],
+								'width' => "475px", 'height' => "75px",
+								'takesLocale' => false,
+								'default' => '',
+								'multiple' => false,
+								'label' => _t('Use relationship type'),
+								'description' => _t('Relationship type to link selected representations with.')
+							),
 						);
+						
+						if($va_path[1] === 'ca_objects_x_object_representations') {
+							unset($va_additional_settings['useRepresentationRelationshipType']);
+							unset($va_additional_settings['showSetRepresentationButton']['showOnSelect']);
+						}
 				
 						if(
 							!($policies = array_merge(
@@ -1507,6 +1539,26 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 						}
 					} else {
 						switch($bundle) {
+							case 'hierarchy_tools':
+								$va_additional_settings = [									
+									'numPerPage' => array(
+										'formatType' => FT_NUMBER,
+										'displayType' => DT_FIELD,
+										'default' => 100,
+										'width' => 5, 'height' => 1,
+										'label' => _t('Number of items to load per page'),
+										'description' => _t('Maximum number of items to render on initial load.')
+									),
+									'itemDisplayTemplate' => [
+										'formatType' => FT_TEXT,
+										'displayType' => DT_FIELD,
+										'default' => '',
+										'width' => "475px", 'height' => "100px",
+										'label' => _t('Item display template'),
+										'description' => _t('Caption for item in hierarchy list.')
+									]
+								];
+								break;
 							case 'authority_references_list':
 								$va_additional_settings = array(
 									'maxReferencesToDisplay' => array(
@@ -1615,16 +1667,38 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 								break;
 							case 'generic':
 							case 'ca_objects_components_list':
-								$va_additional_settings = array(
-									'displayTemplate' => array(
-										'formatType' => FT_TEXT,
-										'displayType' => DT_FIELD,
-										'default' => '<l>^ca_objects.preferred_labels.name</l> (^ca_objects.idno)',
-										'width' => "475px", 'height' => 5,
-										'label' => _t('Component display template'),
-										'description' => _t('Layout for component when displayed in list (can include HTML). Element code tags prefixed with the ^ character can be used to represent the value in the template. For example: <i>^ca_objects.idno</i>.')
-									)
-								);
+								$va_additional_settings['containerTemplate'] = [
+									'formatType' => FT_TEXT,
+									'displayType' => DT_FIELD,
+									'default' => '<div>',
+									'width' => "475px", 'height' => 5,
+									'label' => _t('Component display container template'),
+									'description' => _t('Markup to place components within. Markup wraps the series of components formatted using component display templates. Use the placeholder <em>^COMPONENTS</em> to place the component list within the container markup.')
+								];
+								$va_additional_settings['displayTemplate'] = [
+									'formatType' => FT_TEXT,
+									'displayType' => DT_FIELD,
+									'default' => '<l>^ca_objects.preferred_labels.name</l> (^ca_objects.idno)',
+									'width' => "475px", 'height' => 5,
+									'label' => _t('Component display template'),
+									'description' => _t('Layout for component when displayed in list (can include HTML). Element code tags prefixed with the ^ character can be used to represent the value in the template. For example: <i>^ca_objects.idno</i>.')
+								];
+								$va_additional_settings['currentDisplayTemplate'] = [
+									'formatType' => FT_TEXT,
+									'displayType' => DT_FIELD,
+									'default' => '<l>^ca_objects.preferred_labels.name</l> (^ca_objects.idno)',
+									'width' => "475px", 'height' => 5,
+									'label' => _t('Currently selected component display template'),
+									'description' => _t('Layout for component when displayed in list and it is the currently edited record. Element code tags prefixed with the ^ character can be used to represent the value in the template. For example: <i>^ca_objects.idno</i>.')
+								];
+								$va_additional_settings['numColumns'] = [
+									'formatType' => FT_TEXT,
+									'displayType' => DT_FIELD,
+									'default' => 1,
+									'width' => "20px", 'height' => 1,
+									'label' => _t('Number of columns in component display'),
+									'description' => _t('Number of columns use when displaying component list.')
+								];
 								break;
 							case 'circulation_status':
 								$va_additional_settings = array(
@@ -2050,11 +2124,78 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 										'default' => false,
 										'label' => _t('Show batch editing button?'),
 										'description' => _t('If checked an option to batch edit contents will be displayed.')
-									)
+									),
+									'showCount' => array(
+										'formatType' => FT_NUMBER,
+										'displayType' => DT_CHECKBOXES,
+										'width' => 10, 'height' => 1,
+										'takesLocale' => false,
+										'default' => 0,
+										'label' => _t('Show relationship count in header?'),
+										'description' => _t('If checked the number of relationships will be displayed in the header for the field.')
+									),
+									'numPerPage' => array(
+										'formatType' => FT_NUMBER,
+										'displayType' => DT_FIELD,
+										'default' => 100,
+										'width' => "5", 'height' => 1,
+										'label' => _t('Number of items to load per page'),
+										'description' => _t('Maximum number of items to render on initial load.')
+									),
+									'disableSorts' => array(
+										'formatType' => FT_TEXT,
+										'displayType' => DT_CHECKBOXES,
+										'width' => 10, 'height' => 1,
+										'takesLocale' => false,
+										'default' => '0',
+										'label' => _t('Disable user-selectable sorting options?'),
+										'hideOnSelect' => ['allowedSorts'],
+										'description' => _t('If checked sorting of related items will be disabled.')
+									),
+									'sortDirection' => array(
+										'formatType' => FT_TEXT,
+										'displayType' => DT_SELECT,
+										'width' => "200px", 'height' => "1",
+										'takesLocale' => false,
+										'default' => 'ASC',
+										'options' => array(
+											_t('Ascending') => 'ASC',
+											_t('Descending') => 'DESC'
+										),
+										'label' => _t('Initial sort direction'),
+										'description' => _t('Direction of sort, when sort is specified.')
+									),
 								);
+								$policy_tables = ca_objects::getHistoryTrackingCurrentValuePolicyTargets();
+								
+								foreach($policy_tables as $t) {
+									$tl = Datamodel::getTableProperty($t, 'NAME_SINGULAR');
+									$va_additional_settings["sort_{$t}"] = [
+										'formatType' => FT_TEXT,
+										'displayType' => DT_SELECT,
+										'width' => "475px", 'height' => 1,
+										'takesLocale' => false,
+										'default' => '',
+										'label' => _t('Initially sort %1 policies using', $tl),
+										'showSortableBundlesFor' => ['table' => $t],
+										'description' => _t('Default sort for %1 policies.', $tl)
+									];
+								}
+								foreach($policy_tables as $t) {
+									$tl = Datamodel::getTableProperty($t, 'NAME_SINGULAR');
+									$va_additional_settings["allowedSorts_{$t}"] = [
+										'formatType' => FT_TEXT,
+										'displayType' => DT_SELECT,
+										'showSortableBundlesFor' => ['table' => $t],
+										'default' => null,
+										'multiple' => true,
+										'width' => "475px", 'height' => 5,
+										'label' => _t('User-selectable sort options for %1 policies', $tl),
+										'description' => _t('Limits user-selectable sort options on this bundle.')
+									];
+								}
 								break;
 							case 'ca_set_items':
-								require_once(__CA_MODELS_DIR__."/ca_sets.php");
 								$t_set = new ca_sets();
 								if ($this->inTransaction()) { $t_set->setTransaction($this->getTransaction()); }
 								
@@ -2095,7 +2236,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
                                         'takesLocale' => false,
                                         'default' => '0',
                                         'label' => _t('Do not show delete button'),
-                                        'description' => _t('If checked the delete relationship control will not be provided.')
+                                        'description' => _t('If checked the delete control will not be provided.')
                                     )
                                 ];
 							    break;
@@ -2121,7 +2262,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
                                         'takesLocale' => false,
                                         'default' => '0',
                                         'label' => _t('Do not show delete button'),
-                                        'description' => _t('If checked the delete relationship control will not be provided.')
+                                        'description' => _t('If checked the delete control will not be provided.')
                                     )
                                 ];
 							    break;
@@ -2177,7 +2318,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 			
 			TooltipManager::add(
 				"#uiEditorBundle_{$bundle_normalized}",
-				"<h2>{$vs_label}</h2>".
+				"<div class='tooltipHead'>{$vs_label}</div>".
 				_t("Bundle name").": {$bundle_normalized}<br />".
 				((strlen($vs_description) > 0) ? _t("Description").": {$vs_description}<br />" : "")
 			);
@@ -2433,7 +2574,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 			$vs_description = $t_instance->getDisplayDescription($table.'.'.$vs_bundle_proc);
 			TooltipManager::add(
 				"#uiEditor_{$vn_placement_id}",
-				"<h2>{$vs_label}</h2>".
+				"<div class='tooltipHead'>{$vs_label}</div>".
 				_t("Bundle name").": {$vs_bundle_proc}<br />".
 				((strlen($vs_description) > 0) ? _t("Description").": {$vs_description}<br />" : "")
 			);
@@ -2450,8 +2591,8 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 	 *		user_id = if specified then placements are only returned if the user has at least read access to the screen
 	 * @return int Number of placements. 
 	 */
-	public function getPlacementCount($pa_options=null) {
-		return sizeof($this->getPlacementsInDisplay($pa_options));
+	public function getPlacementCount(?array $options=null) : int {
+		return sizeof($this->getPlacementsInScreen($options) ?? []);
 	}
 	# ------------------------------------------------------
 	/** 
@@ -2563,7 +2704,7 @@ class ca_editor_ui_screens extends BundlableLabelableBaseModelWithAttributes {
 						return false;
 					}
 				} else {
-					$t_placement = new ca_editor_ui_bundle_placements($vn_placement_id, null, $va_available_bundles[$vs_bundle]['settings']);
+					$t_placement = new ca_editor_ui_bundle_placements($vn_placement_id, null, $va_available_bundles[$vs_bundle]['settings'] ?? []);
 					if ($this->inTransaction()) { $t_placement->setTransaction($this->getTransaction()); }
 					$t_placement->set('rank', $vn_i + 1);
 					

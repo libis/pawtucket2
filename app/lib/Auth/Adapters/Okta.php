@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2018-2019 Whirl-i-Gig
+ * Copyright 2018-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -30,7 +30,6 @@
  * ----------------------------------------------------------------------
  */
 require_once(__CA_LIB_DIR__.'/Auth/BaseAuthAdapter.php');
-require_once(__CA_MODELS_DIR__.'/ca_users.php');
 
 class OktaAuthAdapter extends BaseAuthAdapter implements IAuthAdapter {
 	/**
@@ -127,7 +126,7 @@ class OktaAuthAdapter extends BaseAuthAdapter implements IAuthAdapter {
                         'lname' => $va_attrs['sub'],
                         'active' => 1,
                         'roles' => $va_default_roles,
-                        'groups' => $va_groups
+                        'groups' => $va_default_roles
                     ];
 			    }
 				if ($user_info['status'] !== 'ACTIVE') {
@@ -214,7 +213,9 @@ class OktaAuthAdapter extends BaseAuthAdapter implements IAuthAdapter {
 	 *
 	 */
     public function deauthenticate($options=null) {
-       	setcookie("access_token", "", time()-3600, '/');
+		$cookiepath = ((__CA_URL_ROOT__== '') ? '/' : __CA_URL_ROOT__);
+		$secure = (__CA_SITE_PROTOCOL__ === 'https');
+       	setcookie("access_token", "", time()-3600, $cookiepath, null, $secure, true);
         return true;
     }
     # --------------------------------------------------------------------------------
@@ -234,7 +235,10 @@ class OktaAuthAdapter extends BaseAuthAdapter implements IAuthAdapter {
             if($this->verifyJwt($exchange['access_token']) == false) {
                 throw new OktaException(_t('Verification of Okta JWT failed'));
             }
-            setcookie("access_token", $exchange['access_token'],time()+$exchange['expires_in'],"/",false);
+            
+			$cookiepath = ((__CA_URL_ROOT__== '') ? '/' : __CA_URL_ROOT__);
+			$secure = (__CA_SITE_PROTOCOL__ === 'https');
+            setcookie("access_token", $exchange['access_token'],time()+$exchange['expires_in'], $cookiepath, null, $secure, true);
             if(!($redirect_url = Session::getVar('pawtucket2_last_page')) && ($redirect_url !== '/')) { $redirect_url = $this->config->get('default_action'); }
             header('Location: '.$this->config->get('site_host').'/'.$redirect_url);
             return;

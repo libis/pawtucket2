@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2015-2022 Whirl-i-Gig
+ * Copyright 2015-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,15 +29,9 @@
  *
  * ----------------------------------------------------------------------
  */
-
-/**
- *
- */
-
 require_once(__CA_LIB_DIR__.'/Db.php');
 require_once(__CA_LIB_DIR__.'/Search/SearchIndexer.php');
 require_once(__CA_LIB_DIR__.'/Utils/LockingTrait.php');
-
 
 BaseModel::$s_ca_models_definitions['ca_search_indexing_queue'] = array(
 	'NAME_SINGULAR' 	=> _t('search indexing queue entry'),
@@ -251,6 +245,7 @@ class ca_search_indexing_queue extends BaseModel {
 							}
 
 							$o_db->query('DELETE FROM ca_search_indexing_queue WHERE entry_id = ?', [$o_result->get('entry_id')]);
+							self::lockRenew();
 						}
 					}
 				}
@@ -258,6 +253,37 @@ class ca_search_indexing_queue extends BaseModel {
 
 			self::lockRelease();
 		}
+	}
+	# ------------------------------------------------------
+	/**
+	 *
+	 */
+	static public function count() {
+		$o_db = new Db();
+		if($qr = $o_db->query("SELECT count(*) c FROM ca_search_indexing_queue")) {
+			$qr->nextRow();
+			return (int)$qr->get('c');
+		}
+		return null;
+	}
+	# ------------------------------------------------------
+	/**
+	 *
+	 */
+	static public function hasEntries() {
+		$o_db = new Db();
+		if($qr = $o_db->query("SELECT entry_id FROM ca_search_indexing_queue WHERE started_on IS NULL LIMIT 1")) {
+			if(!$qr->nextRow()) { return false; }
+			return (bool)$qr->get('entry_id');
+		}
+		return null;
+	}
+	# ------------------------------------------------------
+	/**
+	 *
+	 */
+	static public function isRunning() {
+		return self::lockExists();
 	}
 	# ------------------------------------------------------
 	/**

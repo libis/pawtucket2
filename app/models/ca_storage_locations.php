@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2008-2022 Whirl-i-Gig
+ * Copyright 2008-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,16 +29,10 @@
  * 
  * ----------------------------------------------------------------------
  */
- 
- /**
-   *
-   */
-
 require_once(__CA_LIB_DIR__."/IBundleProvider.php");
 require_once(__CA_LIB_DIR__."/RepresentableBaseModel.php");
 require_once(__CA_LIB_DIR__.'/IHierarchy.php');
 require_once(__CA_LIB_DIR__."/HistoryTrackingCurrentValueTrait.php");
-
 
 BaseModel::$s_ca_models_definitions['ca_storage_locations'] = array(
  	'NAME_SINGULAR' 	=> _t('storage location'),
@@ -89,6 +83,14 @@ BaseModel::$s_ca_models_definitions['ca_storage_locations'] = array(
 				'IS_NULL' => false, 
 				'DEFAULT' => '',
 				'LABEL' => 'Sortable object identifier as integer', 'DESCRIPTION' => 'Integer value used for sorting objects; used for idno range query.'
+		),
+		'home_location_id' => array(
+				'FIELD_TYPE' => FT_NUMBER, 'DISPLAY_TYPE' => DT_SELECT, 
+				'DISPLAY_WIDTH' => 10, 'DISPLAY_HEIGHT' => 1,
+				'IS_NULL' => true, 
+				'DEFAULT' => null,
+				'ALLOW_BUNDLE_ACCESS_CHECK' => true,
+				'LABEL' => _t('Home location ID'), 'DESCRIPTION' => _t('The customary storage location for this location.')
 		),
 		'source_id' => array(
 				'FIELD_TYPE' => FT_NUMBER, 'DISPLAY_TYPE' => DT_SELECT, 
@@ -397,14 +399,19 @@ class ca_storage_locations extends RepresentableBaseModel implements IBundleProv
 		$this->BUNDLES['history_tracking_chronology'] = array('type' => 'special', 'repeating' => false, 'label' => _t('History'));
 		$this->BUNDLES['history_tracking_current_contents'] = array('type' => 'special', 'repeating' => false, 'label' => _t('Current contents'));
 		
+		$this->BUNDLES['home_location_value'] = array('type' => 'special', 'repeating' => false, 'label' => _t('Home location display value'), 'displayOnly' => true);
+		
 		$this->BUNDLES['generic'] = array('type' => 'special', 'repeating' => false, 'label' => _t('Display template'));
 	}
 	# ------------------------------------------------------
+	/**
+	 *
+	 */
 	public function insert($pa_options=null) {
-		$vb_web_set_transaction = false;
+		$we_set_transaction = false;
 		if (!$this->inTransaction()) {
 			$this->setTransaction(new Transaction($this->getDb()));
-			$vb_web_set_transaction = true;
+			$we_set_transaction = true;
 		}
 
 		$o_trans = $this->getTransaction();
@@ -414,13 +421,37 @@ class ca_storage_locations extends RepresentableBaseModel implements IBundleProv
 		}
 		$vn_rc = parent::insert($pa_options);
 
+		$this->handleMove($pa_options);
 		if ($this->numErrors()) {
-			if ($vb_web_set_transaction) { $o_trans->rollback(); }
+			if ($we_set_transaction) { $o_trans->rollback(); }
 		} else {
-			if ($vb_web_set_transaction) { $o_trans->commit(); }
+			if ($we_set_transaction) { $o_trans->commit(); }
 		}
 
 		return $vn_rc;
+	}
+	# ------------------------------------------------------
+	/**
+	 *
+	 */
+	public function update($pa_options=null) {
+		$we_set_transaction = false;
+		if (!$this->inTransaction()) {
+			$this->setTransaction(new Transaction($this->getDb()));
+			$we_set_transaction = true;
+		}
+		$o_trans = $this->getTransaction();
+		
+		$parent_changed = $this->changed('parent_id');
+		$rc = parent::update($pa_options);
+		if($parent_changed) { $this->handleMove($pa_options); }
+		
+		if ($this->numErrors()) {
+			if ($we_set_transaction) { $o_trans->rollback(); }
+		} else {
+			if ($we_set_transaction) { $o_trans->commit(); }
+		}
+		return $rc;
 	}
 	# ------------------------------------------------------
 	/**
@@ -579,6 +610,48 @@ class ca_storage_locations extends RepresentableBaseModel implements IBundleProv
 		}
 		
 		if($we_set_transaction) { $this->removeTransaction(true); }
+		return true;
+	}
+	# ------------------------------------------------------
+	/**
+	 * Set move information for contained items if configured to do so
+	 *
+	 * @param array $options 
+	 *
+	 * @return bool
+	 */
+	public function handleMove($options=null) {
+		if(!($new_parent_id = $this->get('parent_id'))) { return null; }
+		if(!($id = $this->getPrimaryKey())) { return null; }
+		
+		$policies = HistoryTrackingCurrentValueTrait::getDependentHistoryTrackingCurrentValuePolicies($this->tableName(), array_merge($options ?? [], ['type_id' => $this->getTypeID()]));
+		if(!is_array($policies)) { return null; }
+		$type_code = $this->getTypeCode();
+		foreach($policies as $policy => $policy_info) {
+			$dtls = $policy_info['elements']['ca_storage_locations'][$type_code] ?? $policy_info['elements']['ca_storage_locations']['__default__'] ?? null;
+			if(!is_array($dtls)) { continue; }
+			
+			if(!is_array($container_types = $dtls['containerTypes'] ?? null)) { continue; }
+			$container_ref_element_code = $dtls['containerReferenceElementCode'] ?? null;
+			if(in_array($type_code, $container_types)) {
+				// We're moving a container, so apply move to all enclosed items
+				if($qr_contents = $this->getContents($policy, ['expandHierarchically' => true])) {
+					while($qr_contents->nextHit()) {
+						$t_instance = $qr_contents->getInstance();
+						$t_rel = $t_instance->addRelationship('ca_storage_locations', $id, 'related', _t('now'));
+						if($container_ref_element_code) {
+							$t_rel->addAttribute([$container_ref_element_code => $new_parent_id], $container_ref_element_code);
+							$t_rel->update();
+							
+							if($this->numErrors()) {
+								$this->errors = $t_rel->errors;
+								return false;
+							}
+						}
+					}
+				}
+			}
+		}
 		return true;
 	}
 	# ------------------------------------------------------

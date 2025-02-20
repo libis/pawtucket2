@@ -1,13 +1,13 @@
 <?php
 /* ----------------------------------------------------------------------
- * app/controllers/DetailController.php : controller for object search request handling - processes searches from top search bar
+ * app/controllers/DetailController.php : 
  * ----------------------------------------------------------------------
  * CollectiveAccess
  * Open-source collections management software
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2013-2019 Whirl-i-Gig
+ * Copyright 2013-2023 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -33,7 +33,6 @@ require_once(__CA_LIB_DIR__.'/ApplicationPluginManager.php');
 require_once(__CA_APP_DIR__."/controllers/FindController.php");
 require_once(__CA_APP_DIR__."/helpers/printHelpers.php");
 require_once(__CA_APP_DIR__."/helpers/exportHelpers.php");
-require_once(__CA_MODELS_DIR__."/ca_objects.php");
 require_once(__CA_LIB_DIR__.'/Logging/Downloadlog.php');
 require_once(__CA_LIB_DIR__.'/Parsers/ZipStream.php');
 
@@ -125,6 +124,9 @@ class DetailController extends FindController {
 		}
 		if ($this->request->getActionExtra() == 'GetMediaData') {
 			return $this->GetMediaData();
+		}
+		if ($this->request->getActionExtra() == 'DownloadAttributeMedia') {
+			return $this->DownloadAttributeMedia();
 		}
 		
 		$function = strtolower($function);
@@ -231,7 +233,7 @@ class DetailController extends FindController {
 			}
 			// Get current display list
 			$t_display = new ca_bundle_displays();
-			foreach(caExtractValuesByUserLocale($t_display->getBundleDisplays(array('table' => $this->ops_tablename, 'user_id' => $this->request->getUserID(), 'access' => __CA_BUNDLE_DISPLAY_READ_ACCESS__, 'checkAccess' => caGetUserAccessValues($this->request)))) as $display) {
+			foreach(caExtractValuesByUserLocale($t_display->getBundleDisplays(array('restrictToTypes' => [$t_subject->getTypeCode()], 'table' => $this->ops_tablename, 'user_id' => $this->request->getUserID(), 'access' => __CA_BUNDLE_DISPLAY_READ_ACCESS__, 'checkAccess' => caGetUserAccessValues($this->request)))) as $display) {
 				$export_options[$display['name']] = "_display_".$display['display_id'];
 			}
 			ksort($export_options);
@@ -263,6 +265,28 @@ class DetailController extends FindController {
 		caAddPageCSSClasses(array($table, $function, $type));
 		
 		$o_context = ResultContext::getResultContextForLastFind($this->request, $table);
+		
+		$result_desc = $o_context->getResultDesc();
+		$this->view->setVar('resultDesc', $result_desc[$t_subject->getPrimaryKey()] ?? null);
+		
+		if($o_context->findType() === 'multisearch') {
+			if(!in_array($t_subject->getPrimaryKey(), $o_context->getResultList())) {
+				// try to find context that contains item
+				$search_config = caGetSearchConfig();
+				$blocks = array_filter($search_config->getAssoc('multisearchTypes') ?? [], function($v) use ($table) {
+					return ($v['table'] === $table);
+				});
+				foreach($blocks as $block => $block_info) {
+					if($block === $o_context->findSubType()) { continue; }
+					if($o_new_context = new ResultContext($this->request, $table, 'multisearch', $block)) {
+						if(in_array($t_subject->getPrimaryKey(), $o_new_context->getResultList())) {
+							$o_context = $o_new_context;
+							break;
+						}
+					}
+				}
+			}
+		}
 		
 		$this->view->setVar('previousID', $vn_previous_id = $o_context->getPreviousID($t_subject->getPrimaryKey()));
 		$this->view->setVar('nextID', $vn_next_id = $o_context->getNextID($t_subject->getPrimaryKey()));
@@ -297,6 +321,31 @@ class DetailController extends FindController {
 			}
 			if(!is_array($media_display_info = caGetMediaDisplayInfo('detail', $t_representation->getMediaInfo('media', 'original', 'MIMETYPE')))) { $media_display_info = []; }
 			
+			$default_annotation_id = $start_timecode = null;
+			
+			if($start_timecode = $this->request->getParameter('start', pString)) {
+				// Timecode specified
+			} elseif(
+				($annotation_identifier = $this->request->getParameter(['annotation', 'clip'], pString)) &&
+				(($options['annotationIdentifier'] ?? null) && 
+				($t_instance = ca_representation_annotations::findAsInstance([$options['annotationIdentifier'] => $annotation_identifier])))
+			) {
+				$default_annotation_id = $t_instance->get('ca_representation_annotations.annotation_id');
+			} elseif($item_match_desc = $result_desc[$t_subject->getPrimaryKey()] ?? null) {
+				// Search matched annotation?
+				foreach($item_match_desc['desc'] as $m) {
+					if($m['table'] === 'ca_representation_annotations') {
+						$default_annotation_id = $m['field_row_id'];
+						break;
+					}
+					if($m['table'] === 'ca_representation_annotation_labels') {
+						if($t_instance = ca_representation_annotation_labels::findAsInstance($m['field_row_id'])) {
+							$default_annotation_id = $t_instance->get('ca_representation_annotation_labels.annotation_id');
+							break;
+						}
+					}
+				}
+			}
 			$this->view->setVar('representationViewerPrimaryOnly', $rep_viewer_primary_only = caGetOption('representationViewerPrimaryOnly', $options, false));
 			$this->view->setVar('representationViewer', 
 				caRepresentationViewer(
@@ -307,6 +356,8 @@ class DetailController extends FindController {
 						[
 							'display' => 'detail',
 							'showAnnotations' => true, 
+							'defaultAnnotationID' => $default_annotation_id,	// jump to specific annotation?
+							'startTimecode' => $start_timecode,				// jump to specific time?
 							'primaryOnly' => caGetOption('representationViewerPrimaryOnly', $options, false), 
 							'dontShowPlaceholder' => caGetOption('representationViewerDontShowPlaceholder', $options, false), 
 							'captionTemplate' => caGetOption('representationViewerCaptionTemplate', $options, false),
@@ -330,11 +381,24 @@ class DetailController extends FindController {
 		$this->view->setVar("map", "");
 		if(is_array($map_attributes) && sizeof($map_attributes)) {
 			$o_map = new GeographicMap((($vn_width = caGetOption(['mapWidth', 'map_width'], $options, false)) ? $vn_width : 285), (($vn_height = caGetOption(['mapHeight', 'map_height'], $options, false)) ? $vn_height : 200), 'map');
-				
+			
+			$qr_relative_to = null;
+			if($map_relative_to = caGetOption('map_relative_to', $options, null)) {
+				$qr_relative_to = $t_subject->getRelatedItems($map_relative_to, ['returnAs' => 'searchResult']);
+			}
 			$vn_mapped_count = 0;	
 			foreach($map_attributes as $map_attribute) {
 				if ($t_subject->get($map_attribute)){
-					$ret = $o_map->mapFrom($t_subject, $map_attribute, array('labelTemplate' => caGetOption('mapLabelTemplate', $options, false), 'contentTemplate' => caGetOption('mapContentTemplate', $options, false)));
+					$map_fuzz_level = null;
+					if(is_array($map_fuzz_config = caGetOption('mapFuzz', $options, null))) {
+						$when = $map_fuzz_config['when'] ?? null;
+						if(($when && $t_subject->evaluateExpression($map_fuzz_config['when'])) || !$when) {
+							$map_fuzz_level = $map_fuzz_config['level'] ?? null;
+						}
+					} else{
+						$map_fuzz_level = $map_fuzz_config;
+					}
+					$ret = $o_map->mapFrom($qr_relative_to ? $qr_relative_to : $t_subject, $map_attribute, array('labelTemplate' => caGetOption('mapLabelTemplate', $options, false), 'contentTemplate' => caGetOption('mapContentTemplate', $options, false), 'fuzz' => (int)$map_fuzz_level));
 					$vn_mapped_count += $ret['items'];
 				}
 			}
@@ -506,9 +570,17 @@ class DetailController extends FindController {
 	 *
 	 */ 
 	public function GetTimebasedRepresentationAnnotationList() {
-		$id 			= $this->request->getParameter('id', pInteger);
-		$representation_id 	= $this->request->getParameter('representation_id', pInteger);
+		$id 					= $this->request->getParameter('id', pInteger);
+		$representation_id 		= $this->request->getParameter('representation_id', pInteger);
 		$detail_type			= $this->request->getParameter('context', pString);
+		$default_annotation_id 	= $this->request->getParameter('default_annotation_id', pInteger);
+		$start_timecode 		= $this->request->getParameter('start_timecode', pString);
+		
+		$start_time = null;
+		if($start_timecode) {
+			$tc = new TimecodeParser($start_timecode);
+			$start_time = $tc->getSeconds();
+		}
 		$detail_options 		= (isset($this->opa_detail_types[$detail_type]['options']) && is_array($this->opa_detail_types[$detail_type]['options'])) ? $this->opa_detail_types[$detail_type]['options'] : array();
 		
 		if(!$id) { $id = 0; }
@@ -531,7 +603,7 @@ class DetailController extends FindController {
 		) {
 			while($qr_annotations->nextHit()) {
 				if (!preg_match('!^TimeBased!', $qr_annotations->getAnnotationType())) { continue; }
-				$annotation_list[] = $qr_annotations->getWithTemplate($vs_template);
+				$annotation_list[$qr_annotations->getPrimaryKey()] = $qr_annotations->getWithTemplate($vs_template);
 				$annotation_times[] = array((float)$qr_annotations->getPropertyValue('startTimecode', true) - (float)$props['timecode_offset'], (float)$qr_annotations->getPropertyValue('endTimecode', true) - (float)$props['timecode_offset']);
 			}
 			$qr_annotations->seek(0);
@@ -540,6 +612,8 @@ class DetailController extends FindController {
 		$this->view->setVar('representation_id', $representation_id);
 		$this->view->setVar('annotation_list', $annotation_list);
 		$this->view->setVar('annotation_times', $annotation_times);
+		$this->view->setVar('default_annotation_id', $default_annotation_id);
+		$this->view->setVar('start_time', $start_time);
 		$this->view->setVar('annotations_search_results', $qr_annotations);
 		$this->view->setVar('player_name', "caMediaOverlayTimebased_{$representation_id}_detail");
 		
@@ -738,6 +812,11 @@ class DetailController extends FindController {
 		$va_versions = $t_rep->getMediaVersions('media');
 		
 		if (!in_array($ps_version, $va_versions)) { $ps_version = $va_versions[0]; }
+		
+		$available_versions = caGetAvailableDownloadVersions($this->request, $t_rep->getMediaInfo('media', 'INPUT', 'MIMETYPE'));
+		if(!in_array($ps_version, $available_versions, true)) { 
+			return;
+		}
 		$this->view->setVar('version', $ps_version);
 		
 		$va_rep_info = $t_rep->getMediaInfo('media', $ps_version);
@@ -1159,14 +1238,18 @@ class DetailController extends FindController {
 		$t_attr = new ca_attributes($t_attr_val->get('attribute_id'));
 	
 		$t_element = new ca_metadata_elements($t_attr->get('element_id'));
-		$this->request->setParameter(Datamodel::primaryKey($table_num), $t_attr->get('row_id'));
+		$table = $this->request->getParameter('table', pString);
+		$this->request->setParameter(Datamodel::primaryKey($table), $t_attr->get('row_id'));
 		
-		$subject_id = $this->request->getParameter("subject_id", pInteger);
-		list($subject_id, $t_subject) = $this->_initView($options);
+		if(!($t_subject = Datamodel::getInstance($table))) {
+			throw new ApplicationException(_t('Invalid table'));
+		}
+		$subject_id = $this->request->getParameter($t_subject->primaryKey(), pInteger);
+		$t_subject->load($subject_id);
+		
 		$version = $this->request->getParameter('version', pString);
 			
-		if (!$this->_checkAccess($t_subject)) { return false; }
-
+		//if (!$this->_checkAccess($t_subject)) { return false; }
 		
 		//
 		// Does user have access to bundle?
@@ -1354,7 +1437,7 @@ class DetailController extends FindController {
 	 *		display = The type of media_display.conf display configuration to be used (Eg. "detail", "media_overlay"). [Default is "media_overlay"]
 	 */
 	public function GetMediaOverlay($options=null) {
-		$context = $this->request->getParameter('context', pString);
+		$context = $context_str = $this->request->getParameter('context', pString);
 		
 		if ($context == 'gallery') {
 			$context_info = [
@@ -1375,7 +1458,7 @@ class DetailController extends FindController {
 		
 		if (!($display_type = $this->request->getParameter('display', pString))) { $display_type = 'media_overlay'; }
 		$options['display'] = $display_type;
-		$options['context'] = $this->request->getParameter('context', pString);
+		$options['context'] = $context_str;
 		
 		$local_options = (isset($this->opa_detail_types[$options['context']]['options']) && is_array($this->opa_detail_types[$options['context']]['options'])) ? $this->opa_detail_types[$options['context']]['options'] : array();
 		$options['captionTemplate'] = caGetOption('representationViewerCaptionTemplate', $local_options, false);
@@ -1405,7 +1488,7 @@ class DetailController extends FindController {
 	 * Return media viewer data via AJAX callback for viewers that require it.
 	 */
 	public function GetMediaData() {
-		$context = $this->request->getParameter('context', pString);
+		$context = $context_str = $this->request->getParameter('context', pString);
 		
 		if (!($display_type = $this->request->getParameter('display', pString))) { $display_type = 'media_overlay'; }
 	
@@ -1435,14 +1518,14 @@ class DetailController extends FindController {
 			throw new ApplicationException(_t('Cannot view media'));
 		}
 	
-		$this->response->addContent(caGetMediaViewerData($this->request, caGetMediaIdentifier($this->request), $pt_subject, ['display' => $display_type, 'context' => $context, 'checkAccess' => $this->opa_access_values]));
+		$this->response->addContent(caGetMediaViewerData($this->request, caGetMediaIdentifier($this->request), $pt_subject, ['display' => $display_type, 'context' => $context_str, 'checkAccess' => $this->opa_access_values]));
 	}
 	# -------------------------------------------------------
 	/**
 	 * Provide in-viewer search for those that support it (Eg. UniversalViewer)
 	 */
 	public function SearchMediaData() {
-	   $context = $this->request->getParameter('context', pString);
+	   $context = $context_str = $this->request->getParameter('context', pString);
 		
 		if (!($display_type = $this->request->getParameter('display', pString))) { $display_type = 'media_overlay'; }
 
@@ -1472,7 +1555,7 @@ class DetailController extends FindController {
 			throw new ApplicationException(_t('Cannot view media'));
 		}
 
-		$this->response->addContent(caSearchMediaData($this->request, caGetMediaIdentifier($this->request), $pt_subject, ['display' => $display_type, 'context' => $this->request->getParameter('context', pString)]));
+		$this->response->addContent(caSearchMediaData($this->request, caGetMediaIdentifier($this->request), $pt_subject, ['display' => $display_type, 'context' => $context_str]));
 	}
 	# -------------------------------------------------------
 	/**

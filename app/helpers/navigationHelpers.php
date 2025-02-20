@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2007-2021 Whirl-i-Gig
+ * Copyright 2007-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,12 +29,8 @@
  * 
  * ----------------------------------------------------------------------
  */
- 
-  /**
-   *
-   */
-   
  	require_once(__CA_APP_DIR__.'/helpers/htmlFormHelpers.php');
+ 	require_once(__CA_APP_DIR__.'/helpers/themeHelpers.php');
  	
  	# ------------------------------------------------------------------------------------------------
  	/**
@@ -109,6 +105,10 @@
  	define('__CA_NAV_ICON_CROSSHAIRS__', 68);
  	define('__CA_NAV_ICON_UPLOAD__', 69);
  	define('__CA_NAV_ICON_COPY__', 70);
+ 	define('__CA_NAV_ICON_MERGE__', 71);
+ 	define('__CA_NAV_ICON_SPLIT__', 72);
+ 	define('__CA_NAV_ICON_TOGGLE__', 73);
+ 	define('__CA_NAV_ICON_CHECKBOX__', 74);
  	
  	/**
  	 * Icon position constants
@@ -130,13 +130,17 @@
 	 *		dontURLEncodeParameters = Don't apply url encoding to parameters in URL [Default is false]
 	 *		absolute = return absolute URL. [Default is to return relative URL]
 	 *      useQueryString = encode other parameters as query string rather than in url path [Default is false]
+	 *		isServiceUrl = assume URL is a web-services call (Eg. use service.php rather than index.php) [Default is false]
 	 *
 	 * @return string
 	 */
 	function caNavUrl($po_request, $ps_module_path, $ps_controller, $ps_action, $pa_other_params=null, $pa_options=null) {
-
+		$is_service_url = caGetOption('isServiceUrl', $pa_options, false, ['castTo' => 'boolean']);
 		if(caUseCleanUrls()) {
 			$vs_url = $po_request->getBaseUrlPath();
+			if($is_service_url) { $vs_url .= '/service.php'; }
+		} elseif($is_service_url) {
+			$vs_url = $po_request->getBaseUrlPath().'/service.php';
 		} else {
 			$s = $po_request->getScriptName();
 			$vs_url = $po_request->getBaseUrlPath().'/'.(($s === 'service.php') ? 'index.php' : $s);
@@ -175,7 +179,7 @@
 					if ($use_query_string) { 
 					    $query_params[$vs_name] = $vs_value;
 					} else {
-					    $vs_url .= '/'.$vs_name."/".(caGetOption('dontURLEncodeParameters', $pa_options, false) ? $vs_value : urlencode($vs_value));
+					    $vs_url .= '/'.$vs_name."/".(caGetOption('dontURLEncodeParameters', $pa_options, false) ? $vs_value : rawurlencode($vs_value));
 				    }
 					$vn_i++;
 				}
@@ -389,6 +393,7 @@
 	 *  noCSRFToken = if true CSRF token is omitted. [Default is false]
 	 *	disableSubmit = don't allow form to be submitted. [Default is false]
 	 *	submitOnReturn = submit form if user hits return in any form element. [Default is false]
+	 *	autocomplete = enable autocomplete for elements in form. [Default is false]
 	 */
 	function caFormTag($po_request, $ps_action, $ps_id, $ps_module_and_controller_path=null, $ps_method='post', $ps_enctype='multipart/form-data', $ps_target='_top', $pa_options=null) {
 		if ($ps_target) {
@@ -417,7 +422,9 @@
 				$po_request->getControllerUrl().'/'.$ps_action;
 		}
 		
-		$vs_buf = "<form action='".$vs_action."' method='".$ps_method."' id='".$ps_id."' $vs_target enctype='".$ps_enctype."'>\n<input type='hidden' name='_formName' value='{$ps_id}'/>\n";
+		$autocomplete = caGetOption('autocomplete', $pa_options, false);
+		
+		$vs_buf = "<form action='".$vs_action."' method='".$ps_method."' id='".$ps_id."' $vs_target enctype='".$ps_enctype."' ".($autocomplete ? '' : 'autocomplete="off"').">\n<input type='hidden' name='_formName' value='{$ps_id}'/>\n";
 		
 		if (!caGetOption('noTimestamp', $pa_options, false)) {
 			$vs_buf .= caHTMLHiddenInput('form_timestamp', array('value' => time()));
@@ -579,7 +586,7 @@
 		
 		$va_img_attr = array(
 			'border' => '0',
-			'alt=' => $ps_content,
+			'alt' => htmlentities($ps_content),
 			'class' => 'form-button-left',
 			'style' => "padding-right: {$vn_padding}px"
 		);
@@ -789,7 +796,7 @@
 				$vs_fa_class = 'fas fa-cog';
 				break;
 			case __CA_NAV_ICON_FILTER__:
-				$vs_fa_class = 'fas fa-sliders';
+				$vs_fa_class = 'fas fa-sliders-h';
 				break;	
 			case __CA_NAV_ICON_EXPORT__:
 				$vs_fa_class = 'fas fa-download';
@@ -858,7 +865,7 @@
  				$vs_fa_class = 'far fa-clock';	
  				break;				
  			case __CA_NAV_ICON_SPINNER__:
- 				$vs_fa_class = 'fa-solid fa-spinner fa-spin';
+ 				$vs_fa_class = 'fas fa-spinner fa-spin';	
  				break;								
  			case __CA_NAV_ICON_HIER__:
  				$vs_fa_class = 'fas fa-sitemap';
@@ -898,6 +905,18 @@
 				break;	
 			case __CA_NAV_ICON_COPY__:
 				$vs_fa_class = 'fa fa-clipboard';
+				break;	
+			case __CA_NAV_ICON_MERGE__:
+				$vs_fa_class = 'fa fa-object-group';
+				break;	
+			case __CA_NAV_ICON_SPLIT__:
+				$vs_fa_class = 'fa fa-object-ungroup';
+				break;		
+			case __CA_NAV_ICON_TOGGLE__:
+				$vs_fa_class = 'fa fa-toggle-on';
+				break;
+			case __CA_NAV_ICON_CHECKBOX__:
+				$vs_fa_class = 'fa fa-check-square';
 				break;																					
 			default:
 				print "INVALID CONSTANT $pn_type<br>\n";
@@ -999,7 +1018,23 @@
 			if (!($t_table = Datamodel::getInstanceByTableName($ps_table, true))) { return null; }
 		}
 		$pb_quick_add = caGetOption('quick_add', $pa_options, false);
-
+		
+		if (isset($pa_options['verifyLink']) && $pa_options['verifyLink']) {
+			// Make sure record link points to exists
+			if (($pn_id > 0) && !$t_table->load($pn_id)) {
+				return null;
+			}
+		}
+		
+		$action_extra = caGetOption('actionExtra', $pa_options, null);
+		if($bundle = caGetOption('bundle', $pa_options, null)) {
+			$t_table->load($pn_id);
+			$type_id = $t_table->getTypeID();
+			if($t_ui = ca_editor_uis::loadDefaultUI($ps_table, $po_request, $type_id)) {
+				$action_extra = $t_ui->getScreenWithBundle($bundle, $po_request, ['type_id' => $type_id]);
+			}
+		}
+		
 		$vs_pk = $t_table->primaryKey();
 		$vs_table = $t_table->tableName();
 		if ($vs_table == 'ca_list_items') { $vs_table = 'ca_lists'; }
@@ -1109,22 +1144,26 @@
 				return null;
 				break;
 		}
-		
-		$action_extra = caGetOption('actionExtra', $pa_options, null);
-
 		switch($vs_table) {
 			case 'ca_relationship_types':
 				$vs_action = isset($pa_options['action']) ? $pa_options['action'] : (($po_request->isLoggedIn() && $po_request->user->canDoAction('can_configure_relationship_types')) ? 'Edit' : 'Summary'); 
 				break;
 			default:
+				$default_to_summary_view_conf = $po_request->config->getList("{$vs_table}_editor_defaults_to_summary_view");
+				if(is_array($default_to_summary_view_conf) && sizeof($default_to_summary_view_conf)) {
+					$t_ui = ca_editor_uis::loadDefaultUI($vs_table, $po_request, $t_table->getTypeID($pn_id));
+					$default_to_summary_view = $t_ui ? in_array($t_ui->get('editor_code'), $default_to_summary_view_conf, true) : false;
+				} else {
+					$default_to_summary_view = (bool)$po_request->config->get("{$vs_table}_editor_defaults_to_summary_view");
+				}
 				if(isset($pa_options['action'])){
 					$vs_action = $pa_options['action'];
 				} elseif($pb_quick_add) {
 					$vs_action = 'Form';
 				} elseif(
 					$po_request->isLoggedIn() &&
-					$po_request->user->canAccess($vs_module,$vs_controller,"Edit",array($vs_pk => $pn_id)) &&
-					!((bool)$po_request->config->get($vs_table.'_editor_defaults_to_summary_view') && $pn_id) // when the id is null/0, we go to the Edit action, even when *_editor_defaults_to_summary_view is set
+					$po_request->user->canAccess($vs_module, $vs_controller, "Edit", [$vs_pk => $pn_id]) &&
+					!($default_to_summary_view && $pn_id) // when the id is null/0, we go to the Edit action, even when *_editor_defaults_to_summary_view is set
 				) {
 					$vs_action = 'Edit';
 				} else {
@@ -1132,14 +1171,6 @@
 				}
 				break;
 		}
-		
-		if (isset($pa_options['verifyLink']) && $pa_options['verifyLink']) {
-			// Make sure record link points to exists
-			if (($pn_id > 0) && !$t_table->load($pn_id)) {
-				return null;
-			}
-		}
-		
 		
 		if ($pb_return_url_as_pieces) {
 			return array(
@@ -1379,14 +1410,15 @@
 	# ------------------------------------------------------------------------------------------------
 	/**
 	 * Redirect to given url
-	 * @param string $ps_url
+	 * @param string $url
 	 * @return bool success state
 	 */
-	function caSetRedirect($ps_url) {
-		global $g_response;
-		if(!($g_response instanceof ResponseHTTP)) { return false; }
+	function caSetRedirect($url) {
+		$app = AppController::getInstance();
+		$resp = $app->getResponse();
+		if(!($resp instanceof ResponseHTTP)) { return false; }
 
-		$g_response->setRedirect($ps_url);
+		$resp->setRedirect($url);
 		return true;
 	}
 	# ------------------------------------------------------------------------------------------------

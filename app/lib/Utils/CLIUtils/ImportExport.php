@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2018-2023 Whirl-i-Gig
+ * Copyright 2018-2024 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -29,7 +29,6 @@
  * 
  * ----------------------------------------------------------------------
  */
-
 trait CLIUtilsImportExport { 
 	# -------------------------------------------------------
 	/**
@@ -37,7 +36,6 @@ trait CLIUtilsImportExport {
 	 */
 	public static function import_media($po_opts=null) {
 		require_once(__CA_LIB_DIR__."/BatchProcessor.php");
-
 
 		if (!caCheckMediaDirectoryPermissions()) {
 			CLIUtils::addError(_t('The media directory is not writeable by the current user. Try again, running the import as the web server user.'));
@@ -438,6 +436,11 @@ trait CLIUtilsImportExport {
 			CLIUtils::addError(_t('You must specify a mapping'));
 			return false;
 		}
+		if ($dataset = (int)$po_opts->getOption('dataset')) {
+			if($dataset < 0) { 
+				$dataset = 0;
+			}
+		}
 		if (!($t_mapping = ca_data_importers::mappingExists($vs_mapping))) {
 			CLIUtils::addError(_t('Mapping %1 does not exist', $vs_mapping));
 			return false;
@@ -451,7 +454,16 @@ trait CLIUtilsImportExport {
 			CLIUtils::addError(_t('Set %1 does take items imported by mapping', $vs_add_to_set));
 			return false;
 		}
-
+		if ($start = (int)$po_opts->getOption('start')) {
+			if($start < 0) { 
+				$start = 0;
+			}
+		}
+		if ($limit = (int)$po_opts->getOption('limit')) {
+			if($limit < 0) { 
+				$limit = 0;
+			}
+		}
 
 		$vb_direct = (bool)$po_opts->getOption('direct');
 		$vb_no_search_indexing = (bool)$po_opts->getOption('no-search-indexing');
@@ -473,13 +485,16 @@ trait CLIUtilsImportExport {
 		$t_importer = new ca_data_importers();
 		if (!$t_importer->importDataFromSource($vs_data_source, $vs_mapping, 
 			[	'dryRun' => $vb_dryrun, 'noTransaction' => $vb_direct, 
-				'format' => $vs_format, 'showCLIProgressBar' => true, 
+				'format' => $vs_format, 'showCLIProgressBar' => true,
+				'dataset' => $dataset,
 				'logDirectory' => $vs_log_dir, 'logLevel' => $po_opts->getOption('log-level'), 
 				'limitLogTo' => $po_opts->getOption('limit-log-to'), 
 				'logToTempDirectoryIfLogDirectoryIsNotWritable' => $vb_use_temp_directory_for_logs_as_fallback, 
 				'addToSet' => $vs_add_to_set, 'environment' => $env,
 				'detailedLogName' => $vs_detailed_log_name,
-				'importAllDatasets' => $vb_import_all_datasets
+				'importAllDatasets' => $vb_import_all_datasets,
+				'start' => $start,
+				'limit' => $limit
 			]
 		)) {
 			CLIUtils::addError(_t("Could not import source %1: %2", $vs_data_source, join("; ", $t_importer->getErrorList())));
@@ -496,6 +511,7 @@ trait CLIUtilsImportExport {
 	public static function import_dataParamList() {
 		return array(
 			"source|s=s" => _t('Data to import. For files provide the path; for database, OAI and other non-file sources provide a URL.'),
+			"dataset|w=s" => _t('Dataset to import. For XLSX files this is equivalent to worksheets. Dataset indexes are zero-based. For example, in Excel to import the first worksheet set this option to zero (or omit it, as the defalt is zero).'),
 			"mapping|m=s" => _t('Mapping to import data with.'),
 			"format|f-s" => _t('The format of the data to import. (Ex. XLSX, tab, CSV, mysql, OAI, Filemaker XML, ExcelXML, MARC). If omitted an attempt will be made to automatically identify the data format.'),
 			"log|l-s" => _t('Path to directory in which to log import details. If not set no logs will be recorded.'),
@@ -508,7 +524,9 @@ trait CLIUtilsImportExport {
 			"direct" => _t('If set import is performed without a transaction. This allows viewing of imported data during the import, which may be useful during debugging/development. It may also lead to data corruption and should only be used for testing.'),
 			"no-search-indexing" => _t('If set indexing of changes made during import is not done. This may significantly reduce import time, but will neccessitate a reindex of the entire database after the import.'),
 			"log-to-tmp-directory-as-fallback" => _t('Use the system temporary directory for the import log if the application logging directory is not writable. Default report an error if the application log directory is not writeable.'),
-			"detailed-log-name" => _t('Name to use for detailed field-level error log. By default these log files are named with the date and code for the import mapping.')
+			"detailed-log-name" => _t('Name to use for detailed field-level error log. By default these log files are named with the date and code for the import mapping.'),
+			"start|h-i" => _t('Row to start import on.'),
+			"limit|i-i" => _t('Maximum number of rows to import.'),
 		);
 	}
 	# -------------------------------------------------------
@@ -561,10 +579,10 @@ trait CLIUtilsImportExport {
 		} else {
 			if(is_array($va_errors) && sizeof($va_errors)){
 				foreach($va_errors as $vs_error){
-					CLIUtils::addMessage(_t("Warning").":".$vs_error);
+					CLIUtils::addMessage($vs_error);
 				}
 			}
-			CLIUtils::addMessage("Created mapping %1 from %2", CLIUtils::textWithColor($t_exporter->get('exporter_code'), 'yellow'), $vs_file_path);
+			CLIUtils::addMessage(_t("Created mapping %1 from %2", CLIUtils::textWithColor($t_exporter->get('exporter_code'), 'yellow'), $vs_file_path));
 			return true;
 		}
 	}
@@ -607,11 +625,11 @@ trait CLIUtilsImportExport {
 		$rdf = (bool)$opts->getOption('rdf');
 
 		if (!$rdf && !$search && !$id) {
-			CLIUtils::addError('You must specify either an idno or a search expression to select a record or record set for export or activate RDF mode.');
+			CLIUtils::addError(_t('You must specify either an idno or a search expression to select a record or record set for export or activate RDF mode.'));
 			return false;
 		}
 		if (!($filename = $opts->getOption('file'))) {
-			CLIUtils::addError('You must specify a file to write export output to.');
+			CLIUtils::addError(_t('You must specify a file to write export output to.'));
 			return false;
 		}
 
@@ -633,21 +651,21 @@ trait CLIUtilsImportExport {
 		// RDF mode
 		if($rdf){
 			if (!($config = $opts->getOption('config'))) {
-				CLIUtils::addError('You must specify a configuration file that contains the export definition for the RDF mode.');
+				CLIUtils::addError(_t('You must specify a configuration file that contains the export definition for the RDF mode.'));
 				return false;
 			}
 
 			// test config syntax
 			if(!Configuration::load($config)){
-				CLIUtils::addError('Syntax error in configuration file %s.',$config);
+				CLIUtils::addError(_t('Syntax error in configuration file %s.',$config));
 				return false;
 			}
 
 			if(ca_data_exporters::exportRDFMode($config, $filename,array('showCLIProgressBar' => true, 'logDirectory' => $log_dir, 'logLevel' => $log_level))){
-				CLIUtils::addMessage("Exported data to %1", CLIUtils::textWithColor($filename, 'yellow'));
+				CLIUtils::addMessage(_t("Exported data to %1", CLIUtils::textWithColor($filename, 'yellow')));
 				return true;
 			} else {
-				CLIUtils::addError("Could not run RDF mode export");
+				CLIUtils::addError(_t("Could not run RDF mode export"));
 				return false;
 			}
 		}
@@ -655,40 +673,40 @@ trait CLIUtilsImportExport {
 		// Search or ID mode
 
 		if (!($mapping = $opts->getOption('mapping'))) {
-			CLIUtils::addError('You must specify a mapping for export.');
+			CLIUtils::addError(_t('You must specify a mapping for export.'));
 			return false;
 		}
 
 		if (!(ca_data_exporters::loadExporterByCode($mapping))) {
-			CLIUtils::addError('Mapping %1 does not exist', $mapping);
+			CLIUtils::addError(_t('Mapping %1 does not exist', $mapping));
 			return false;
 		}
 
 		if(sizeof($va_errors = ca_data_exporters::checkMapping($mapping))>0){
-			CLIUtils::addError("Mapping %1 has errors: %2",$mapping,join("; ",$va_errors));
+			CLIUtils::addError(_t("Mapping %1 has errors: %2",$mapping,join("; ",$va_errors)));
 			return false;
 		}
 
 		if($individual_files && !is_dir($filename)) {
 			if(!@mkdir($filename)) {
-				CLIUtils::addError("Could not create directory for export files");
+				CLIUtils::addError(_t("Could not create directory for export files"));
 				return false;
 			}
 		}
 
 		if($search){
 			if(!ca_data_exporters::exportRecordsFromSearchExpression($mapping, $search, $filename, ['showCLIProgressBar' => true, 'logDirectory' => $log_dir, 'logLevel' => $log_level, 'individualFiles' => $individual_files, 'filenameTemplate' => $filename_template, 'includeDeleted' => $include_deleted])){
-				CLIUtils::addError("Could not export mapping %1", $mapping);
+				CLIUtils::addError(_t("Could not export mapping %1", $mapping));
 				return false;
 			} else {
-				CLIUtils::addMessage("Exported data to %1", $filename);
+				CLIUtils::addMessage(_t("Exported data to %1", $filename));
 			}
 		} else if($id){
 			if($export = ca_data_exporters::exportRecord($mapping, $id, ['singleRecord' => true, 'logDirectory' => $log_dir, 'logLevel' => $log_level, 'individualFiles' => $individual_files, 'filenameTemplate' => $filename_template])){
 				file_put_contents($filename, $export);
-				CLIUtils::addMessage("Exported data to %1", CLIUtils::textWithColor($filename, 'yellow'));
+				CLIUtils::addMessage(_t("Exported data to %1", CLIUtils::textWithColor($filename, 'yellow')));
 			} else {
-				CLIUtils::addError("Could not export mapping %1", $mapping);
+				CLIUtils::addError(_t("Could not export mapping %1", $mapping));
 				return false;
 			}
 		}
@@ -819,52 +837,9 @@ trait CLIUtilsImportExport {
 	}
 	# -------------------------------------------------------
 	/**
-	 *
-	 */
-	public static function replicate_data($po_opts=null) {
-		require_once(__CA_LIB_DIR__.'/Sync/Replicator.php');
-
-		$o_replicator = new Replicator();
-		$o_replicator->replicate();
-	}
-	# -------------------------------------------------------
-	/**
-	 *
-	 */
-	public static function replicate_dataParamList() {
-		return array();
-	}
-	# -------------------------------------------------------
-	/**
-	 *
-	 */
-	public static function replicate_dataUtilityClass() {
-		return _t('Import/Export');
-	}
-	# -------------------------------------------------------
-	/**
-	 *
-	 */
-	public static function replicate_dataShortHelp() {
-		return _t("Replicate data from one CollectiveAccess system to another.");
-	}
-	# -------------------------------------------------------
-	/**
-	 *
-	 */
-	public static function replicate_dataHelp() {
-		return _t("Replicates data in one CollectiveAccess instance based upon data in another instance, subject to configuration in replication.conf.");
-	}
-
-
-	# -------------------------------------------------------
-	/**
 	 * Load metadata dictionary
 	 */
 	public static function load_chenhall_nomenclature($po_opts=null) {
-		require_once(__CA_MODELS_DIR__.'/ca_lists.php');
-		require_once(__CA_MODELS_DIR__.'/ca_locales.php');
-
 		$t_list = new ca_lists();
 		$o_db = $t_list->getDb();
 
@@ -1011,6 +986,10 @@ trait CLIUtilsImportExport {
 			}
 			$non_preferred_terms = array_filter($non_preferred_terms, function($v) { return strlen($v); });
 
+			if(preg_match("!blank sub-class!i", $data[$level])) { 
+				if ($level > 0) { $parent_ids[$level] = $parent_ids[$level-1]; }
+				continue; 
+			}
 			if (!$t_item) {
 				if (!($t_item = $t_list->addItem($data[$level], true, false, $parent_id, null, $id, '', 0, 1))) {
 					CLIUtils::addError(_t("Could not add term %1: %2", $data[$level], join("; ", $t_list->getErrors())));
@@ -1094,20 +1073,20 @@ trait CLIUtilsImportExport {
 		$table = $po_opts->getOption('table');
 		if (!$table) {
 			CLIUtils::addError(_t('You must specify a table'));
-			return;
+			return false;
 		}
 		if (!Datamodel::tableExists($table)) {
 			CLIUtils::addError(_t('Invalid table %1', $table));
-			return;
+			return false;
 		}
 		$id = $po_opts->getOption('id');
 		if (!$id) {
 			CLIUtils::addError(_t('You must specify an id'));
-			return;
+			return false;
 		}
 
 		$e = new ExternalExportManager();
-		$e->process($table, $id, ['target' => $target, 'logLevel' => $log_level]);
+		return (bool)$e->process($table, $id, ['target' => $target, 'logLevel' => $log_level]);
 	}
 	# -------------------------------------------------------
 	public static function run_external_exportParamList() {
@@ -1156,7 +1135,7 @@ trait CLIUtilsImportExport {
 		$log_level = $po_opts->getOption('log-level');
 
 		$e = new ExternalExportManager(['logLevel' => $log_level]);
-		$e->processPending(['target' => $target, 'logLevel' => $log_level]);
+		return (bool)$e->processPending(['target' => $target, 'logLevel' => $log_level]);
 	}
 	# -------------------------------------------------------
 	public static function run_pending_external_exportsParamList() {
@@ -1197,28 +1176,28 @@ trait CLIUtilsImportExport {
 		$file = $po_opts->getOption('file');
 		if (!$file) {
 			CLIUtils::addError(_t('A file must be specified'));
-			return;
+			return false;
 		}
 
 		if ($file && ((file_exists($file) && !is_writeable($file)) || (!file_exists($file) && !is_writeable(pathinfo($file, PATHINFO_DIRNAME))))) {
 			CLIUtils::addError(_t('Cannot write to file %1', $file));
-			return;
+			return false;
 		}
 
 		$mapping = $po_opts->getOption('mapping');
 		if (!$mapping) {
 			CLIUtils::addError(_t('An export mapping must be specified'));
-			return;
+			return false;
 		}
-
 
 		try {
 			ca_data_exporters::writeExporterToFile($mapping, $file);
 		} catch (Exception $e) {
 			CLIUtils::addError(_t('Could not export %1: %2', $mapping, $e->getMessage()));
-			return;
+			return false;
 		}
 		CLIUtils::addMessage(_t('Exported %1', $mapping));
+		return true;
 	}
 	# -------------------------------------------------------
 	public static function write_exporter_to_fileParamList() {
@@ -1252,23 +1231,25 @@ trait CLIUtilsImportExport {
 	/**
 	 * @param Zend_Console_Getopt|null $po_opts
 	 * @return bool
+	 *
+	 * @TODO: use caExportResult helper instead
 	 */
 	public static function export_search_using_display($po_opts=null) {
 		$file = $po_opts->getOption('file');
 		if (!$file) {
 			CLIUtils::addError(_t('A file must be specified'));
-			return;
+			return false;
 		}
 
 		if ($file && ((file_exists($file) && !is_writeable($file)) || (!file_exists($file) && !is_writeable(pathinfo($file, PATHINFO_DIRNAME))))) {
 			CLIUtils::addError(_t('Cannot write to file %1', $file));
-			return;
+			return false;
 		}
 
 		$table = $po_opts->getOption('table');
 		if (!$table) {
 			CLIUtils::addError(_t('A table must be specified'));
-			return;
+			return false;
 		}
 
 		$format = strtoupper($po_opts->getOption('format'));
@@ -1277,7 +1258,7 @@ trait CLIUtilsImportExport {
 		$display = $po_opts->getOption('display');
 		if(!($t_display = ca_bundle_displays::find(['display_code' => $display], ['returnAs' => 'firstModelInstance']))) {
 			CLIUtils::addError(_t('A valid display must be specified'));
-			return;
+			return false;
 		}
 
 		$search = $po_opts->getOption('search');
@@ -1285,11 +1266,10 @@ trait CLIUtilsImportExport {
 
 		if(!($o_s = caGetSearchInstance($table))) {
 			CLIUtils::addError(_t('Could not create search for %1', $table));
-			return;
+			return false;
 		}
 		$result = $o_s->search($search);
 
-		//$result, $format, $file, $ps_title=null
 		$view = new View(null, [__CA_THEME_DIR__.'/views/find']);
 
 		$view->setVar('criteria_summary', $search);	// add displayable description of current search/browse parameters
@@ -1313,7 +1293,7 @@ trait CLIUtilsImportExport {
 				file_put_contents($file, $output);
 				return;
 			case 'DOCX':
-				$view->render('Results/docx_results.php');
+				$output = $view->render('Results/docx_results.php');
 				file_put_contents($file, $output);
 				return;						
 			case 'CSV':
@@ -1328,7 +1308,7 @@ trait CLIUtilsImportExport {
 				break;
 			default:
 				CLIUtils::addError(_t('Invalid format %1', $format));
-				return;
+				return false;
 		}
 
 		$rows = [];
@@ -1360,7 +1340,8 @@ trait CLIUtilsImportExport {
 		}
 		fclose($r);		
 
-		CLIUtils::addMessage(_t('Exported %1', $mapping));
+		CLIUtils::addMessage(_t('Exported using %1', $display));
+		return true;
 	}
 	# -------------------------------------------------------
 	public static function export_search_using_displayParamList() {
@@ -1403,18 +1384,18 @@ trait CLIUtilsImportExport {
 		$file = $po_opts->getOption('file');
 		if (!$file) {
 			CLIUtils::addError(_t('A file must be specified'));
-			return;
+			return false;
 		}
 
 		if ($file && ((file_exists($file) && !is_writeable($file)) || (!file_exists($file) && !is_writeable(pathinfo($file, PATHINFO_DIRNAME))))) {
 			CLIUtils::addError(_t('Cannot write to file %1', $file));
-			return;
+			return false;
 		}
 
 		$mapping = $po_opts->getOption('mapping');
 		if (!$mapping) {
 			CLIUtils::addError(_t('An import mapping must be specified'));
-			return;
+			return false;
 		}
 
 
@@ -1422,9 +1403,10 @@ trait CLIUtilsImportExport {
 			ca_data_importers::writeImporterToFile($mapping, $file);
 		} catch (Exception $e) {
 			CLIUtils::addError(_t('Could not import mapping %1: %2', $mapping, $e->getMessage()));
-			return;
+			return false;
 		}
 		CLIUtils::addMessage(_t('Exported %1', $mapping));
+		return true;
 	}
 	# -------------------------------------------------------
 	public static function write_importer_to_fileParamList() {
