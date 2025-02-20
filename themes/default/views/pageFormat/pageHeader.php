@@ -57,7 +57,8 @@ $has_user_links = (sizeof($user_links) > 0);
 	<?= AssetLoadManager::getLoadHTML($this->request); ?>
 
 	<title><?= (MetaTagManager::getWindowTitle()) ? MetaTagManager::getWindowTitle() : $this->request->config->get("app_display_name"); ?></title>
-	
+	<link rel="icon" href="<?= $this->request->getBaseUrlPath(); ?>/favicon.ico" type="image/x-icon" />
+
 	<script type="text/javascript">
 		jQuery(document).ready(function() {
     		jQuery('#browse-menu').on('click mouseover mouseout mousemove mouseenter',function(e) { e.stopPropagation(); });
