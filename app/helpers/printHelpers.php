@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2014-2024 Whirl-i-Gig
+ * Copyright 2014-2025 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -30,7 +30,7 @@
  * ----------------------------------------------------------------------
  */
 use Com\Tecnick\Barcode;
-use Zend\Stdlib\Glob;
+use Laminas\Stdlib\Glob;
 
 require_once(__CA_LIB_DIR__."/Print/PDFRenderer.php");
 
@@ -645,6 +645,8 @@ function caEditorPrintSummaryControls($view) {
 	$t_item = $view->getVar('t_subject');
 	$request = $view->request;
 	
+	$defalt_display_id = $request->user->getVar($t_item->tableName().'_print_display_id');
+	
 	$item_id = $t_item->getPrimaryKey();
 	
 	$config = Configuration::load();
@@ -696,7 +698,7 @@ function caEditorPrintSummaryControls($view) {
 		'display_id', 
 		$display_opts, 
 		['onchange' => 'return caSummaryUpdateOptions();', 'id' => 'caSummaryDisplaySelector', 'class' => 'searchFormSelector'],
-		['value' => $t_display->getPrimaryKey()]
+		['value' => $defalt_display_id ? $defalt_display_id : $t_display->getPrimaryKey()]
 	);
 	$view->setVar('print_display_select_html', $print_display_select_html);
 	

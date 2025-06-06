@@ -142,7 +142,9 @@ function caHTMLSelect($ps_name, $pa_content, $pa_attributes=null, $pa_options=nu
 function caHTMLTextInput($name, $attributes=null, $options=null) {
 	$is_textarea = false;
 	$va_styles = array();
-
+	
+	$tag_name = caGetOption('textAreaTagName', $options, 'textarea');
+	
 	if(isset($attributes['style']) && $attributes['style']) {
 		$va_styles[] = $attributes['style'];
 	}
@@ -197,12 +199,9 @@ function caHTMLTextInput($name, $attributes=null, $options=null) {
 	$opts = [];
 
 	$attributes['style'] = join(" ", $va_styles);
-
-	// WYSIWYG editor requires an DOM ID so generate one if none is explicitly set
-	if ($use_wysiwyg_editor && !isset($attributes['id'])) {
-		$attributes['id'] = $name;
-	}
-
+	
+	$id = $attributes['id'] ?? $name;
+	
 	$element = '';
 	if ($use_wysiwyg_editor) {
 		$o_config = Configuration::load();
@@ -245,7 +244,7 @@ function caHTMLTextInput($name, $attributes=null, $options=null) {
 
 				$attr_string = _caHTMLMakeAttributeString($attributes, $options);
 				$element .= "<div id=\"{$name}_container\" style='width: {$width}px; height: {$height}px; overflow-y: auto;'>
-					<textarea name=\"{$name}\" id=\"{$name}\">{$attributes['value']}</textarea></div>
+					<{$tag_name} name=\"{$name}\" id=\"{$name}\">{$attributes['value']}</{$tag_name}></div>
 <style>
 #{$name}_container .ck-editor__editable_inline {
 min-height: calc({$height}px - 100px);
@@ -266,8 +265,8 @@ min-height: calc({$height}px - 100px);
 				$element .= "<div id='{$name}_editor_container' style='width: {$width}px; height: {$height}px;' class='ql-ca-container'><div id='{$name}_editor' class='ql-ca-editor'></div></div>";
 
 				$element .= caHTMLTextInput(
-					$name,
-					['id' => "{$name}", 'value' => $attributes['value'] ?? null, 'style' => 'display: none;'], ['width' => '500px', 'height' => '200px']
+					$name, 
+					['id' => "{$id}", 'value' => $attributes['value'] ?? null, 'style' => 'display: none;'], ['width' => '500px', 'height' => '200px']
 				);
 
 				$element .= "
@@ -287,17 +286,16 @@ min-height: calc({$height}px - 100px);
 		$o_config = Configuration::load();
 		if(!is_array($va_toolbar_config = $o_config->getAssoc(caGetOption('cktoolbar', $options, 'wysiwyg_editor_toolbar')))) { $va_toolbar_config = []; }
 	} elseif ($is_textarea) {
-		$tag_name = caGetOption('textAreaTagName', $options, 'textarea');
 		$value = $attributes['value'] ?? null;
 		if ($attributes['size'] ?? null) { $attributes['cols'] = $attributes['size']; }
 		unset($attributes['size']);
 		unset($attributes['value']);
 		$attr_string = _caHTMLMakeAttributeString($attributes, $options);
-		$element = "<{$tag_name} name='{$name}' id='{$name}' wrap='soft' {$attr_string}>".$value."</{$tag_name}>\n";
+		$element = "<{$tag_name} name='{$name}' id='{$id}' wrap='soft' {$attr_string}>".$value."</{$tag_name}>\n";
 	} else {
 		$attributes['size'] = ($attributes['size'] ?? false) ? $attributes['size'] : $attributes['width'] ?? null;
 		$attr_string = _caHTMLMakeAttributeString($attributes, $options);
-		$element = "<input name='{$name}' id='{$name}' {$attr_string} type='text'/>\n";
+		$element = "<input name='{$name}' id='{$id}' {$attr_string} type='text'/>\n";
 	}
 	return $element;
 }
@@ -561,26 +559,27 @@ $vs_tag = "
 }
 # ------------------------------------------------------------------------------------------------
 /**
-  * Create string for use in HTML tags out of attribute array.
-  *
-  * @param array $pa_attributes
-  * @param array $pa_options Optional array of options. Supported options are:
+  * Create string for use in HTML tags out of attribute array. 
+  * 
+  * @param array $attributes
+  * @param array $options Optional array of options. Supported options are:
   *			dontConvertAttributeQuotesToEntities = if true, attribute values are not passed through htmlspecialchars(); if you set this be sure to only use single quotes in your attribute values or escape all double quotes since double quotes are used to enclose tem
   */
-function _caHTMLMakeAttributeString($pa_attributes, $pa_options=null) {
-	$va_attr_settings = array();
-	if (is_array($pa_attributes)) {
-		foreach($pa_attributes as $vs_attr => $vs_attr_val) {
-			if (is_array($vs_attr_val)) { $vs_attr_val = join(" ", $vs_attr_val); }
-			if (is_object($vs_attr_val)) { continue; }
-			if (isset($pa_options['dontConvertAttributeQuotesToEntities']) && $pa_options['dontConvertAttributeQuotesToEntities']) {
-				$va_attr_settings[] = $vs_attr.'="'.$vs_attr_val.'"';
+function _caHTMLMakeAttributeString($attributes, $options=null) {
+	$attr_settings = array();
+	if (is_array($attributes)) {
+		foreach($attributes as $attr => $attr_val) {
+			if (is_array($attr_val)) { $attr_val = join(" ", $attr_val); }
+			if($attr === 'class') { $attr_val = join(' ', array_map('trim', explode(',', $attr_val))); }
+			if (is_object($attr_val)) { continue; }
+			if (isset($options['dontConvertAttributeQuotesToEntities']) && $options['dontConvertAttributeQuotesToEntities']) {
+				$attr_settings[] = $attr.'="'.$attr_val.'"';
 			} else {
-				$va_attr_settings[] = $vs_attr.'=\''.htmlspecialchars($vs_attr_val, ENT_QUOTES, 'UTF-8').'\'';
+				$attr_settings[] = $attr.'=\''.htmlspecialchars($attr_val, ENT_QUOTES, 'UTF-8').'\'';
 			}
 		}
 	}
-	return join(' ', $va_attr_settings);
+	return join(' ', $attr_settings);
 }
 # ------------------------------------------------------------------------------------------------
 /**

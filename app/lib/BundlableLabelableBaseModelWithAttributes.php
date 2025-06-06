@@ -758,7 +758,8 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		
 		if ($this->opo_idno_plugin_instance) {
 			// If attempting to set parent_id, then flag record as child for id numbering purposes
-			$this->opo_idno_plugin_instance->isChild(((($vs_parent_id_fld = $this->getProperty('HIERARCHY_PARENT_ID_FLD')) && isset($pa_fields[$vs_parent_id_fld]) && ($pa_fields[$vs_parent_id_fld] > 0)) || ($this->isChild())) ? true : null);
+			$is_child = ((($vs_parent_id_fld = $this->getProperty('HIERARCHY_PARENT_ID_FLD')) && isset($pa_fields[$vs_parent_id_fld]) && ($pa_fields[$vs_parent_id_fld] > 0)) || ($this->isChild())) ? true : null;
+			$this->opo_idno_plugin_instance->isChild($is_child, $is_child ? parent::getIdnoForID($this->get($vs_parent_id_fld)) : null);
 		
 			if (in_array($this->getProperty('ID_NUMBERING_ID_FIELD'), $pa_fields)) {
 				if (!$this->_validateIncomingAdminIDNo(true, false)) { 
@@ -1228,7 +1229,7 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		}
 		
 		// Check source restrictions
- 		if ((bool)$this->getAppConfig()->get('perform_source_access_checking')) {
+ 		if (caSourceAccessControlIsEnabled($this)) {
 			$vn_source_access = $t_user->getSourceAccessLevel($this->tableName(), $this->getSourceID());
 			if ($vn_source_access < __CA_BUNDLE_ACCESS_READONLY__) {
 				return false;
@@ -1280,7 +1281,7 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		}
 		
 		// Check source restrictions
- 		if ((bool)$this->getAppConfig()->get('perform_source_access_checking')) {
+ 		if (caSourceAccessControlIsEnabled($this)) {
 			$vn_source_access = $t_user->getSourceAccessLevel($this->tableName(), $this->getSourceID());
 			if ($vn_source_access < __CA_BUNDLE_ACCESS_EDIT__) {
 				return false;
@@ -1343,7 +1344,7 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		}
 		
 		// Check source restrictions
- 		if ((bool)$config->get('perform_source_access_checking')) {
+ 		if (caSourceAccessControlIsEnabled($this)) {
 			$vn_source_access = $t_user->getSourceAccessLevel($table, $this->getSourceID());
 			if ($vn_source_access < __CA_BUNDLE_ACCESS_EDIT__) {
 				return false;
@@ -1393,7 +1394,7 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		}
 		
 		// Check if user has access to this source
-		if ((bool)$this->getAppConfig()->get('perform_source_access_checking')) {
+		if (caSourceAccessControlIsEnabled($this)) {
 			$vn_source_access = $pa_options['request']->user->getSourceAccessLevel($this->tableName(), $this->getSourceID());
 			if ($vn_source_access == __CA_BUNDLE_ACCESS_NONE__) {
 				return;
@@ -1555,7 +1556,7 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 		}
 		
 		// Check if user has access to this source
-		if ((bool)$this->getAppConfig()->get('perform_source_access_checking')) {
+		if (caSourceAccessControlIsEnabled($this)) {
 			$vn_source_access = $pa_options['request']->user->getSourceAccessLevel($this->tableName(), $this->getSourceID());
 			if ($vn_source_access == __CA_BUNDLE_ACCESS_NONE__) {
 				return;
@@ -2048,6 +2049,14 @@ class BundlableLabelableBaseModelWithAttributes extends LabelableBaseModelWithAt
 					case 'ca_user_groups':
 						if (!$pa_options['request']->user->canDoAction('is_administrator') && ($pa_options['request']->getUserID() != $this->get('user_id'))) { return ''; }	// don't allow setting of group access if user is not owner
 						$vs_element .= $this->getUserGroupHTMLFormBundle($pa_options['request'], $pa_options['formName'], $ps_placement_code, $this->tableNum(), $this->getPrimaryKey(), $pa_options['request']->getUserID(), $pa_options);
+						break;
+					# -------------------------------
+					// 
+					case 'anonymous_access':
+						if ($vb_batch) { return null; } // not supported in batch mode
+						if (!($this instanceof ca_sets)) { return null; }
+
+						$vs_element .= $this->getAnonymousAccessHTMLFormBundle($pa_options['request'], $pa_options['formName'], $ps_placement_code, $this->tableNum(), $this->getPrimaryKey(), $pa_options['request']->getUserID(), $pa_options);
 						break;
 					# -------------------------------
 					// 
@@ -4925,7 +4934,7 @@ if (!$vb_batch) {
                                     // Get user-specified center point (images only)
                                     $vn_center_x = $po_request->getParameter($vs_prefix_stub.'center_x_new_'.$va_matches[1], pString);
                                     $vn_center_y = $po_request->getParameter($vs_prefix_stub.'center_y_new_'.$va_matches[1], pString);
-                        			
+                                    
                         			if ($vs_path = trim($vs_path)) {
                         				
 										$files = is_dir($vs_path) ? caGetDirectoryContentsAsList($vs_path) : [$vs_path];
@@ -5240,7 +5249,7 @@ if (!$vb_batch) {
 						if (!$po_request->user->canDoAction('is_administrator') && ($po_request->getUserID() != $this->get('user_id'))) { break; }	// don't save if user is not owner
 						require_once(__CA_MODELS_DIR__.'/ca_users.php');
 	
-						$va_users_to_set = $va_user_effective_dates = [];
+						$va_users_to_set = $va_user_effective_dates = $download_versions = [];
 						foreach($_REQUEST as $vs_key => $vs_val) { 
 							if (preg_match("!^{$vs_placement_code}{$vs_form_prefix}_id(.*)$!", $vs_key, $va_matches)) {
 								$vs_effective_date = $po_request->getParameter("{$vs_placement_code}{$vs_form_prefix}_effective_date_".$va_matches[1], pString);
@@ -5250,10 +5259,34 @@ if (!$vb_batch) {
 									$va_users_to_set[$vn_user_id] = $vn_access;
 									$va_user_effective_dates[$vn_user_id] = $vs_effective_date;
 								}
+								$download_versions[$vn_user_id]['download_versions'] = $po_request->getParameter("{$vs_placement_code}{$vs_form_prefix}_download_version".$va_matches[1], pArray);
 							}
 						}
+						$this->setUsers($va_users_to_set, $va_user_effective_dates, $download_versions);
 						
-						$this->setUsers($va_users_to_set, $va_user_effective_dates);
+						break;
+					# -------------------------------------
+					case 'anonymous_access':
+						if ($vb_batch) { break; } // not supported in batch mode
+						if (!($this instanceof ca_sets)) { return null; }
+	
+						$links_to_set = [];
+						foreach($_REQUEST as $key => $val) { 
+							if (preg_match("!^{$vs_placement_code}{$vs_form_prefix}_relation_id(.*)$!", $key, $matches)) {
+								$id = $val;
+								$effective_date = $po_request->getParameter("{$vs_placement_code}{$vs_form_prefix}_effective_date_".$matches[1], pString);
+								$name = $po_request->getParameter("{$vs_placement_code}{$vs_form_prefix}_name".$matches[1], pString);
+								$downloads = $po_request->getParameter("{$vs_placement_code}{$vs_form_prefix}_download_version".$matches[1], pArray);
+							
+								$links_to_set[] = [
+									'id' => $id,
+									'name' => $name,
+									'effective_date' => $effective_date,
+									'downloads' => $downloads
+								];
+							}
+						}
+						$this->setAnonymousAccessTokens($links_to_set);
 						
 						break;
 					# -------------------------------------
@@ -5267,7 +5300,7 @@ if (!$vb_batch) {
 							if (preg_match("!^{$vs_placement_code}{$vs_form_prefix}_access_([\d]+)$!", $vs_key, $va_matches)) {
 								$vn_role_id = $va_matches[1];
 								$vn_access = $po_request->getParameter($vs_key, pInteger);
-								if ($vn_access > 0) {
+								if (($vn_access > 0) || (in_array($this->tableName(), ['ca_editor_uis', 'ca_editor_ui_screens']))) {
 									$va_roles_to_set[$vn_role_id] = $vn_access;
 								} else {
 									$va_roles_to_remove[$vn_role_id] = true;

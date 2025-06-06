@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2008-2024 Whirl-i-Gig
+ * Copyright 2008-2025 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -552,6 +552,7 @@ class ca_acl extends BaseModel {
 					$log_entries = [];
 					foreach($ids as $id) {
 						$log_entries[] = [
+							'datetime' => time(),
 							'table' => $subject_table,
 							'row_id' => $id,
 							'user_id' => $AUTH_CURRENT_USER_ID,
@@ -625,6 +626,7 @@ class ca_acl extends BaseModel {
 						$log_entries = [];
 						foreach($ids as $id) {
 							$log_entries[] = [
+								'datetime' => time(),
 								'table' => 'ca_objects',
 								'row_id' => $id,
 								'user_id' => $AUTH_CURRENT_USER_ID,
@@ -905,6 +907,7 @@ class ca_acl extends BaseModel {
 								$log_entries = [];
 								foreach($ids as $id) {
 									$log_entries[] = [
+										'datetime' => time(),
 										'table' => 'ca_objects',
 										'row_id' => $id,
 										'user_id' => $AUTH_CURRENT_USER_ID,
@@ -960,6 +963,7 @@ class ca_acl extends BaseModel {
 					$log_entries = [];
 					foreach($ids as $id) {
 						$log_entries[] = [
+							'datetime' => time(),
 							'table' => 'ca_objects',
 							'row_id' => $id,
 							'user_id' => $AUTH_CURRENT_USER_ID,
@@ -999,13 +1003,13 @@ class ca_acl extends BaseModel {
 				$target_table_num = (int)$t_rel_item->tableNum();
 				
 				$subject_pk = (string)$subject->primaryKey();
-				$subject = (string)$subject->tableName();
+				$subject_table_name = (string)$subject->tableName();
 				$subject_table_num = (int)$subject->tableNum();
 				$target_id = (int)$target_id;
 				$subject_id = (int)$subject_id;
 				
 				if (!isset($options['deleteACLOnly']) || !$options['deleteACLOnly']) {
-					if (!$t_rel_item->hasField("acl_inherit_from_{$subject}")) { return false; }
+					if (!$t_rel_item->hasField("acl_inherit_from_{$subject_table_name}")) { return false; }
 				}
 				
 				// Delete existing inherited rows
@@ -1013,9 +1017,9 @@ class ca_acl extends BaseModel {
 				
 				if (!isset($options['deleteACLOnly']) || !$options['deleteACLOnly']) {
 					// only inherit if inherit_from field is set. $target and $target_pk have been verified at this pont
-					$qr_inherit = $db->query("SELECT acl_inherit_from_{$subject} FROM {$target} WHERE {$target_pk} = ?", $target_id);
+					$qr_inherit = $db->query("SELECT acl_inherit_from_{$subject_table_name} FROM {$target} WHERE {$target_pk} = ?", $target_id);
 					if(!$qr_inherit->nextRow()) { return false; }
-					if(!$qr_inherit->get("acl_inherit_from_{$subject}")) { return false; }
+					if(!$qr_inherit->get("acl_inherit_from_{$subject_table_name}")) { return false; }
 
 					// insert inherited ACLs
 					$db->query("

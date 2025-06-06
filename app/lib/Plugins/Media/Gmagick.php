@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2012-2023 Whirl-i-Gig
+ * Copyright 2012-2025 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -63,6 +63,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			'image/x-dpx'		=> 'dpx',
 			'image/x-exr'		=> 'exr',
 			'image/jp2'		=> 'jp2',
+			'image/webp'		=> 'webp',
 			'image/x-adobe-dng'	=> 'dng',
 			'image/x-canon-cr2'	=> 'cr2',
 			'image/x-canon-crw'	=> 'crw',
@@ -89,6 +90,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			'image/x-dpx'		=> 'dpx',
 			'image/x-exr'		=> 'exr',
 			'image/jp2'		=> 'jp2',
+			'image/webp'		=> 'webp',
 			'image/x-adobe-dng'	=> 'dng',
 			'image/x-canon-cr2'	=> 'cr2',
 			'image/x-canon-crw'	=> 'crw',
@@ -108,6 +110,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 			'SCALE' 			=> array('width', 'height', 'mode', 'antialiasing'),
 			'CROP' 				=> array('width', 'height', 'x', 'y'),
 			'ANNOTATE'			=> array('text', 'font', 'size', 'color', 'position', 'inset'),
+			'HIGHLIGHT'			=> array('width', 'height', 'x', 'y', 'color'),
 			'WATERMARK'			=> array('image', 'width', 'height', 'position', 'opacity'),
 			'ROTATE' 			=> array('angle'),
 			'SET' 				=> array('property', 'value'),
@@ -156,7 +159,8 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 		'image/tilepic' 	=> 'Tilepic',
 		'image/x-dpx'		=> 'DPX',
 		'image/x-exr'		=> 'OpenEXR',
-		'image/jp2'		=> 'JPEG-2000',
+		'image/jp2'			=> 'JPEG-2000',
+		'image/webp'		=> 'WEBP',
 		'image/x-adobe-dng'	=> 'Adobe DNG',
 		'image/x-canon-cr2'	=> 'Canon CR2 RAW Image',
 		'image/x-canon-crw'	=> 'Canon CRW RAW Image',
@@ -183,7 +187,8 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 		'image/tilepic' 	=> 'TPC',
 		'image/x-dpx'		=> 'DPX',
 		'image/x-exr'		=> 'EXR',
-		'image/jp2'		=> 'JP2',
+		'image/jp2'			=> 'JP2',
+		'image/webp'		=> 'WEBP',
 		'image/x-adobe-dng'	=> 'DNG',
 		'image/x-canon-cr2'	=> 'CR2',
 		'image/x-canon-crw'	=> 'CRW',
@@ -272,10 +277,10 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 		}
 		
 		if (!caMediaPluginDcrawInstalled()) {
-			$va_status['warnings'][] = _t("RAW support is not avaiable because DCRAW cannot be found");
+			$va_status['warnings'][] = _t("RAW support is not available because DCRAW cannot be found");
 		}
 		if(!caMediaPluginImageMagickInstalled()) {
-			$va_status['warnings'][] = _t("HEIC support is not avaiable because ImageMagick cannot be found<br/>\n(GraphicsMagick does not provide support for HEIC)");
+			$va_status['warnings'][] = _t("HEIC support is not available because ImageMagick cannot be found<br/>\n(GraphicsMagick does not provide support for HEIC)");
 		}
 		
 		return $va_status;
@@ -285,17 +290,6 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 	 *
 	 */
 	public function divineFileFormat($filepath) {
-		// Is it a camera raw image?
-		if ($this->ops_dcraw_path) {
-			caExec($this->ops_dcraw_path." -i ".caEscapeShellArg($filepath)." 2> /dev/null", $va_output, $vn_return);
-			if ($vn_return == 0) {
-				if (is_array($va_output) && isset($va_output[0]) && (!preg_match("/^Cannot decode/", $va_output[0])) && (!preg_match("/Master/i", $va_output[0]))) {
-					$this->opa_raw_list[$filepath] = true;
-					return 'image/x-dcraw';
-				}
-			}
-		}
-		
 		try {
 			if ($filepath != '' && ($r_handle = new Gmagick($filepath))) {
 				$this->setResourceLimits($r_handle);
@@ -306,7 +300,17 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 					return '';
 				}
 			} 
-		} catch (Exception $e) {
+		} catch (Exception $e) {			
+			// Is it a camera raw image?
+			if ($this->ops_dcraw_path) {
+				caExec($this->ops_dcraw_path." -i ".caEscapeShellArg($filepath)." 2> /dev/null", $va_output, $vn_return);
+				if ($vn_return == 0) {
+					if (is_array($va_output) && isset($va_output[0]) && (!preg_match("/^Cannot decode/", $va_output[0])) && (!preg_match("/Master/i", $va_output[0]))) {
+						$this->opa_raw_list[$filepath] = true;
+						return 'image/x-dcraw';
+					}
+				}
+			}
 			// Is it a tilepic?
 			$tp = new TilepicParser();
 			if ($tp->isTilepic($filepath)) {
@@ -552,6 +556,20 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 		try {
 			switch($operation) {
 				# -----------------------
+				case 'HIGHLIGHT':
+					$d = new GmagickDraw();
+					
+					$size = (isset($parameters['size']) && ($parameters['size'] > 0)) ? $parameters['size'] : 18;
+					$d->rectangle($parameters['x'], $parameters['y'], $parameters['x'] + $parameters['width'], $parameters['y'] + $parameters['height']);
+				
+					$pw = new GmagickPixel();
+					$pw->setcolor(isset($parameters['color']) ? $parameters['color'] : "#cc0000");
+					$d->setfillopacity(0.5);
+					$d->setfillcolor($pw);
+					
+					$this->handle->drawimage($d);
+					break;
+				# -----------------------
 				case 'ANNOTATE':
 					$d = new GmagickDraw();
 					if ($parameters['font'] ?? null) { 
@@ -566,7 +584,7 @@ class WLPlugMediaGmagick Extends BaseMediaPlugin Implements IWLPlugMedia {
 					$d->setfontsize($size);
 				
 					$inset = (isset($parameters['inset']) && ($parameters['inset'] > 0)) ? $parameters['inset'] : 0;
-					$pw= new GmagickPixel();
+					$pw = new GmagickPixel();
 					$pw->setcolor(isset($parameters['color']) ? $parameters['color'] : "black");
 					$d->setfillcolor($pw);
 					

@@ -7,7 +7,7 @@
  * ----------------------------------------------------------------------
  *
  * Software by Whirl-i-Gig (http://www.whirl-i-gig.com)
- * Copyright 2009-2024 Whirl-i-Gig
+ * Copyright 2009-2025 Whirl-i-Gig
  *
  * For more information visit http://www.CollectiveAccess.org
  *
@@ -115,13 +115,16 @@ function caGetUserLocaleRules($ps_item_locale=null, $pa_preferred_locales=null) 
  * @param $pa_locale_rules - Associative array defining which locales to extract, and how to fall back to alternative locales should your preferred locales not exist in $pa_values
  * @param $pa_values - Associative array keyed by unique item_id and then locale code (eg. en_US) or locale_id; the values can be anything - string, numbers, objects, arrays, etc.
  * @param $pa_options [optional] - Associative array of options; available options are:
- *									'returnList' = return an indexed array of found values rather than an associative array keys on unique item_id [default is false]
- *									'debug' = print debugging information [default is false]
+ *		returnList = return an indexed array of found values rather than an associative array keys on unique item_id. [Default is false]
+ *		debug = print debugging information. [Default is false]
+ *		noFallback = don't use fallback locales. [Default is false
  * @return Array - an array of found values keyed by unique item_id; or an indexed list of found values if option 'returnList' is passed in $pa_options
  */
 function caExtractValuesByLocale($pa_locale_rules, $pa_values, $pa_options=null) {
 	if (!is_array($pa_values)) { return array(); }
 	$va_locales = ca_locales::getLocaleList();
+	
+	$no_fallback = isset($pa_options['noFallback']) && (bool)$pa_options['noFallback'];
 
 	if (!is_array($pa_options)) { $pa_options = array(); }
 	if (!isset($pa_options['returnList'])) { $pa_options['returnList'] = false; }
@@ -130,7 +133,7 @@ function caExtractValuesByLocale($pa_locale_rules, $pa_values, $pa_options=null)
 	$va_values = array();
 	foreach($pa_values as $vm_id => $va_value_list_by_locale) {
 		if(!is_array($va_value_list_by_locale)) { continue; }
-		if (sizeof($va_value_list_by_locale) == 1) {		// Don't bother looking if there's just a single value
+		if ((sizeof($va_value_list_by_locale) == 1) && (!$no_fallback || (in_array(ca_locales::idToCode(array_key_first($va_value_list_by_locale)), array_keys($pa_locale_rules['preferred']))))) {		// Don't bother looking if there's just a single value
 			$va_values[$vm_id] = array_pop($va_value_list_by_locale);
 			continue;
 		}
@@ -149,13 +152,15 @@ function caExtractValuesByLocale($pa_locale_rules, $pa_values, $pa_options=null)
 				break;
 			}
 
-			// try fallback locales
-			if (isset($pa_locale_rules['fallback'][$vs_locale]) && $pa_locale_rules['fallback'][$vs_locale]) {
-				$va_values[$vm_id] = $vm_value;
+			if(!$no_fallback) {
+				// try fallback locales
+				if (isset($pa_locale_rules['fallback'][$vs_locale]) && $pa_locale_rules['fallback'][$vs_locale]) {
+					$va_values[$vm_id] = $vm_value;
+				}
 			}
 		}
 
-		if (!isset($va_values[$vm_id])) {
+		if (!$no_fallback && !isset($va_values[$vm_id])) {
 			// desperation mode: pick an available locale
 			$va_values[$vm_id] = array_pop($va_value_list_by_locale);
 		}
@@ -2540,7 +2545,7 @@ function caGetMediaDisplayInfo($ps_context, $ps_mimetype) {
  *
  * @return
  */
-function caGetMediaDisplayInfoForMimetype(string $context, string $mimetype) : ?array {
+function caGetMediaDisplayInfoForMimetype(string $context, ?string $mimetype) : ?array {
 	$o_config = Configuration::load();
 	$o_media_display_config = caGetMediaDisplayConfig();
 
@@ -2778,10 +2783,19 @@ function caProcessTemplateTagDirectives($ps_value, $pa_directives, $pa_options=n
 							$vs_measure_conv = $vo_measurement->convertTo(Zend_Measure_Length::INCH, $o_dimensions_config->get('inch_decimal_precision')).((!$pb_omit_units && in_array('INCH', $va_add_periods_list)) ? '.' : '');
 							break;
 					}
+					
+					if(preg_match("!\.[0]+[ ]+!", $vs_measure_conv)) { // remove trailing zero decimals
+						$vs_measure_conv = preg_replace("!\.[0]+[ ]+!", " ", $vs_measure_conv);
+					}
 
 					if ($vs_measure_conv) {
 						if ($pb_omit_units) { $vs_measure_conv = trim(preg_replace("![^\d\-\.\/ ]+!", "", $vs_measure_conv)); }
 						$ps_value = "{$vs_measure_conv}";
+					}
+					if(is_array($pa_options['displayUnits'])) { 
+						foreach($pa_options['displayUnits'] as $b => $a) {
+							$ps_value = preg_replace("!".preg_quote($b, '!')."\.*$!u", $a, $ps_value);
+						}
 					}
 				} catch (Exception $e) {
 					// noop
@@ -4624,8 +4638,7 @@ function caRepresentationViewer($po_request, $po_data, $pt_subject, $pa_options=
 
 			$filtered_rep_ids = [];
 			while($qr_reps->nextHit()) {
-				if(!$qr_reps->get('ca_object_representations.media')) { continue; }
-				$mimetype = $qr_reps->getMediaInfo('ca_object_representations.media', 'original', 'mimetype');
+				if(!($mimetype = $qr_reps->getMediaInfo('ca_object_representations.media', 'original', 'mimetype'))) { continue; }
 				if($show_only_media_types && !caMimetypeIsValid($mimetype, $show_only_media_types)) { continue; }
 
 				if($show_only_media_types_when_present_reduced && !caMimetypeIsValid($mimetype, $show_only_media_types_when_present_reduced)) { continue; }
@@ -5802,6 +5815,23 @@ function caFormatPersonName($fname, $lname, $default=null){
 }
 # ------------------------------------------------------------------
 /**
+ * Strip special characters for filename prior to download
+ *
+ * @param string $filename
+ * @param array $options No options are currently supported
+ *
+ * @return string 
+ * @throws ApplicationException
+ */
+function caEscapeFilenameForDownload(string $filename, ?array $options=null) : string {
+	$v = preg_replace("![\|;\<\>\(\)\$\`\~&\\\\]+!", "_", html_entity_decode($filename));
+	if(preg_match('^\.+$', $filename)) {
+		throw new ApplicationError(_t('Invalid filename'));
+	}
+	return $v;
+}
+# ------------------------------------------------------------------
+/**
  * Generate name for downloaded representation media file based upon app.conf 
  * downloaded_file_naming directive.
  *
@@ -5834,7 +5864,7 @@ function caGetRepresentationDownloadFileName(string $table, array $data, ?array 
 		case 'original_name':
 		default:
 			if (strpos($mode, "^") !== false) { // template
-			   $filename = preg_replace('!\.[A-Za-z]{1}[A-Za-z0-9]{1,3}$!', '', caProcessTemplateForIDs($mode, 'ca_object_representations', [$data['representation_id']]));
+			   $filename = caProcessTemplateForIDs($mode, 'ca_object_representations', [$data['representation_id']]);
 			   
 			} elseif ($data['original_filename']) {
 				$tmp = explode('.', $data['original_filename']);
@@ -5858,8 +5888,7 @@ function caGetRepresentationDownloadFileName(string $table, array $data, ?array 
 			break;
 	} 
 
-	$filename = html_entity_decode($filename);
-	return preg_replace("![^A-Za-z0-9_\-\.&]+!", "_", $filename);
+	return caEscapeFilenameForDownload($filename);
 }
 # ------------------------------------------------------------------
 /**
@@ -5892,9 +5921,7 @@ function caGetMediaDownloadArchiveName($table, $id, $options=null) {
 			}
 			break;
 	} 
-
-	$filename = html_entity_decode($filename);
-	return preg_replace("![^A-Za-z0-9_\-\.&]+!", "_", $filename);
+	return caEscapeFilenameForDownload($filename);
 }
 # ------------------------------------------------------------------
 /**
@@ -6168,6 +6195,12 @@ function caGetFindViewList($table_name_or_num) : ?array {
 			return [
 				'list' => _t('list'),
 				'full' => _t('full'),
+				'thumbnail' => _t('thumbnails'),
+			];
+			break;
+		case 'ca_object_representations':
+			return [
+				'list' => _t('list'),
 				'thumbnail' => _t('thumbnails'),
 			];
 			break;
